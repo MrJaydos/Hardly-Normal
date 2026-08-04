@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#0B1220">
+<title>Scan — Hardly Normal Staff</title>
+<link rel="stylesheet" href="/assets/app.css">
+<style>
+  html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+  #stage{position:fixed;inset:0;background:#000}
+  #cam{width:100%;height:100%;object-fit:cover;display:block}
+
+  #veil{position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(ellipse 78% 22% at 50% 42%, transparent 55%, rgba(11,18,32,.82) 100%)}
+  #reticle{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);
+    width:min(84vw,460px);height:min(30vw,150px);pointer-events:none}
+  .corner{position:absolute;width:26px;height:26px;border:2.5px solid var(--live);
+    transition:all .18s cubic-bezier(.3,1.4,.5,1)}
+  .tl{top:0;left:0;border-right:0;border-bottom:0;border-radius:4px 0 0 0}
+  .tr{top:0;right:0;border-left:0;border-bottom:0;border-radius:0 4px 0 0}
+  .bl{bottom:0;left:0;border-right:0;border-top:0;border-radius:0 0 0 4px}
+  .br{bottom:0;right:0;border-left:0;border-top:0;border-radius:0 0 4px 0}
+  #sweep{position:absolute;left:8px;right:8px;top:0;height:2px;
+    background:linear-gradient(90deg,transparent,var(--live),transparent);
+    box-shadow:0 0 12px var(--live);animation:sweep 2.1s ease-in-out infinite}
+  @keyframes sweep{0%,100%{top:6%;opacity:.35}50%{top:94%;opacity:1}}
+  body.locked .corner{border-color:var(--lock);width:34px;height:34px}
+  body.locked #sweep{animation:none;top:50%;background:var(--lock);opacity:.9}
+  @media (prefers-reduced-motion:reduce){#sweep{animation:none;top:50%}}
+
+  #top{position:fixed;top:0;left:0;right:0;z-index:5;
+    padding:calc(env(safe-area-inset-top) + 10px) 16px 14px;
+    display:flex;align-items:center;gap:10px;
+    background:linear-gradient(180deg,rgba(11,18,32,.92),transparent)}
+  #top .back{margin-left:0}
+  #state{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--live);margin-left:auto}
+  .icon{width:42px;height:42px;border-radius:12px;border:1px solid var(--edge);
+    background:rgba(22,32,47,.72);color:var(--paper);display:grid;place-items:center;
+    font-size:17px;cursor:pointer;backdrop-filter:blur(8px)}
+  .icon[aria-pressed="true"]{border-color:var(--warn);color:var(--warn)}
+
+  #sheet{position:fixed;left:0;right:0;bottom:0;z-index:6;
+    padding:18px 16px calc(env(safe-area-inset-bottom) + 18px);
+    background:linear-gradient(180deg,rgba(11,18,32,.55),rgba(11,18,32,.97) 30%);
+    border-top:1px solid var(--edge);
+    transform:translateY(101%);transition:transform .26s cubic-bezier(.2,.9,.3,1)}
+  #sheet.up{transform:none}
+  #code{font-family:var(--mono);font-size:clamp(26px,8vw,38px);letter-spacing:.04em;line-height:1}
+  #meta{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);margin-top:8px}
+  #go{display:block;width:100%;margin-top:16px;padding:17px;border:0;border-radius:14px;
+    background:var(--lock);color:#07200F;font:600 17px/1 var(--sans);cursor:pointer}
+  #go:active{transform:scale(.985)}
+  #again{display:block;width:100%;margin-top:9px;padding:13px;border:1px solid var(--edge);
+    border-radius:14px;background:transparent;color:var(--muted);font:500 14px/1 var(--sans);cursor:pointer}
+
+  #histBtn{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom) + 18px);z-index:5}
+  #hist{position:fixed;inset:0;z-index:10;background:var(--ink);overflow-y:auto;display:none}
+  #hist.open{display:block}
+  .row{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--ink-lift)}
+  .row b{font-family:var(--mono);font-weight:400;font-size:16px}
+  .row span{color:var(--muted);font-size:11px;font-family:var(--mono);margin-left:auto}
+  .row a{color:var(--live);border:1px solid var(--edge);padding:7px 11px;border-radius:9px;font-size:13px}
+  #empty{color:var(--muted);font-size:14px;padding:36px 0;text-align:center}
+  label.cfg{display:block;color:var(--muted);font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;margin:28px 0 8px}
+  #tpl{width:100%;padding:13px;border-radius:11px;border:1px solid var(--edge);
+    background:var(--ink-lift);color:var(--paper);font-family:var(--mono);font-size:13px}
+  #cfgNote{color:var(--muted);font-size:12px;margin-top:8px;line-height:1.5}
+  #close{margin-top:26px;width:100%;padding:15px;border-radius:13px;border:1px solid var(--edge);
+    background:transparent;color:var(--paper);font:500 15px/1 var(--sans);cursor:pointer}
+  #fatal{position:fixed;inset:0;z-index:20;display:none;place-items:center;padding:32px;
+    text-align:center;background:var(--ink);font-size:15px;line-height:1.6}
+  #fatal a{color:var(--live);text-decoration:underline}
+</style>
+</head>
+<body>
+
+<div id="stage"><video id="cam" playsinline muted autoplay></video></div>
+<div id="veil"></div>
+<div id="reticle">
+  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+  <div id="sweep"></div>
+</div>
+
+<header id="top">
+  <a class="back" href="/hardly-normal/">
+    <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Hardly Normal
+  </a>
+  <span id="state">starting</span>
+  <button class="icon" id="torch" aria-pressed="false" title="Light" hidden>☀</button>
+  <button class="icon" id="flip" title="Switch camera" hidden>⟳</button>
+</header>
+
+<button class="icon" id="histBtn" title="Recent scans">☰</button>
+
+<section id="sheet" aria-live="polite">
+  <div id="code">—</div>
+  <div id="meta"></div>
+  <button id="go">Open on Harvey Norman</button>
+  <button id="again">Keep scanning</button>
+</section>
+
+<section id="hist">
+  <div class="shell">
+    <h1 style="font-size:24px;margin:0 0 4px">Recent scans</h1>
+    <p class="lede" style="font-size:13px">Stored on this device only.</p>
+    <div class="rule"></div>
+    <div id="rows"></div>
+    <div id="empty">Nothing scanned yet.</div>
+    <label class="cfg" for="tpl">Search URL</label>
+    <input id="tpl" spellcheck="false" autocapitalize="off">
+    <p id="cfgNote">Use <code>{code}</code> where the barcode goes. Search a barcode on their site,
+       copy the address bar, and swap the digits for <code>{code}</code>.</p>
+    <button id="close">Done</button>
+  </div>
+</section>
+
+<div id="fatal"></div>
+
+<script>
+const DEFAULT_TPL = "https://www.harveynorman.com.au/catalogsearch/result/?q={code}";
+const FORMATS = ["ean_13","ean_8","upc_a","upc_e","itf","code_128","code_39"];
+const REPEAT_MS = 2500;
+
+const $ = s => document.querySelector(s);
+const cam=$("#cam"), sheet=$("#sheet"), codeEl=$("#code"), metaEl=$("#meta"),
+      stateEl=$("#state"), torchBtn=$("#torch"), flipBtn=$("#flip");
+
+let stream=null, track=null, detector=null, zxing=null, canvas=null, ctx=null,
+    facing="environment", lastCode=null, lastAt=0, running=false, current=null;
+
+const store = {
+  get tpl(){ return localStorage.getItem("hn.tpl") || DEFAULT_TPL },
+  set tpl(v){ localStorage.setItem("hn.tpl", v) },
+  get log(){ try{ return JSON.parse(localStorage.getItem("hn.log")||"[]") }catch{ return [] } },
+  set log(v){ localStorage.setItem("hn.log", JSON.stringify(v.slice(0,60))) }
+};
+const urlFor = c => store.tpl.replace("{code}", encodeURIComponent(c));
+
+async function initDecoder(){
+  if("BarcodeDetector" in window){
+    try{
+      const ok = await BarcodeDetector.getSupportedFormats();
+      const use = FORMATS.filter(f => ok.includes(f));
+      if(use.length){ detector = new BarcodeDetector({formats:use}); return "native"; }
+    }catch{}
+  }
+  await new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
+    s.onload=res; s.onerror=()=>rej(new Error("decoder"));
+    document.head.appendChild(s);
+  });
+  const hints=new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[
+    ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.UPC_A,  ZXing.BarcodeFormat.UPC_E,
+    ZXing.BarcodeFormat.ITF,    ZXing.BarcodeFormat.CODE_128,
+    ZXing.BarcodeFormat.CODE_39
+  ]);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
+  zxing = new ZXing.BrowserMultiFormatReader(hints);
+  return "zxing";
+}
+
+async function startCamera(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    video:{ facingMode:{ideal:facing}, width:{ideal:1920}, height:{ideal:1080},
+            focusMode:"continuous" },
+    audio:false
+  });
+  cam.srcObject = stream;
+  await cam.play();
+  track = stream.getVideoTracks()[0];
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  torchBtn.hidden = !("torch" in caps);
+  torchBtn.setAttribute("aria-pressed","false");
+}
+
+function cropFrame(){
+  const vw=cam.videoWidth, vh=cam.videoHeight;
+  if(!vw) return null;
+  const w=Math.round(vw*0.86), h=Math.round(vh*0.30);
+  const x=Math.round((vw-w)/2), y=Math.round(vh*0.42-h/2);
+  if(!canvas){ canvas=document.createElement("canvas"); ctx=canvas.getContext("2d",{willReadFrequently:true}); }
+  canvas.width=w; canvas.height=h;
+  ctx.drawImage(cam, x,y,w,h, 0,0,w,h);
+  return canvas;
+}
+
+async function readFrame(){
+  const c = cropFrame();
+  if(!c) return null;
+  if(detector){
+    const hits = await detector.detect(c);
+    return hits.length ? {value:hits[0].rawValue, fmt:hits[0].format} : null;
+  }
+  try{
+    const r = zxing.decodeFromCanvas(c);
+    return {value:r.getText(), fmt:String(r.getBarcodeFormat()).toLowerCase()};
+  }catch{ return null; }
+}
+
+async function loop(){
+  if(!running) return;
+  try{
+    const hit = await readFrame();
+    const now = Date.now();
+    if(hit && !(hit.value===lastCode && now-lastAt<REPEAT_MS)){
+      lastCode=hit.value; lastAt=now; onScan(hit.value, hit.fmt);
+    }
+  }catch{}
+  setTimeout(()=>requestAnimationFrame(loop), detector ? 90 : 160);
+}
+
+let audio=null;
+function chirp(){
+  try{
+    audio ||= new (window.AudioContext||window.webkitAudioContext)();
+    const o=audio.createOscillator(), g=audio.createGain();
+    o.frequency.value=1180; o.type="square";
+    g.gain.setValueAtTime(.0001,audio.currentTime);
+    g.gain.exponentialRampToValueAtTime(.16,audio.currentTime+.008);
+    g.gain.exponentialRampToValueAtTime(.0001,audio.currentTime+.12);
+    o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime+.13);
+  }catch{}
+  navigator.vibrate?.(35);
+}
+
+function onScan(value, fmt){
+  current = value;
+  chirp();
+  document.body.classList.add("locked");
+  codeEl.textContent = value;
+  metaEl.textContent = (fmt||"barcode").replace(/_/g," ") + " · tap to open";
+  sheet.classList.add("up");
+  stateEl.textContent = "locked";
+  stateEl.style.color = "var(--lock)";
+  const log = store.log.filter(e=>e.code!==value);
+  log.unshift({code:value, fmt, at:Date.now()});
+  store.log = log;
+}
+
+function resume(){
+  document.body.classList.remove("locked");
+  sheet.classList.remove("up");
+  stateEl.textContent="scanning";
+  stateEl.style.color="var(--live)";
+  lastCode=null;
+}
+
+$("#go").onclick = () => { if(current) window.open(urlFor(current), "_blank", "noopener"); };
+$("#again").onclick = resume;
+
+torchBtn.onclick = async () => {
+  const on = torchBtn.getAttribute("aria-pressed")==="true";
+  try{ await track.applyConstraints({advanced:[{torch:!on}]});
+       torchBtn.setAttribute("aria-pressed", String(!on)); }catch{}
+};
+flipBtn.onclick = async () => {
+  facing = facing==="environment" ? "user" : "environment";
+  try{ await startCamera(); }catch{}
+};
+
+const hist=$("#hist"), rows=$("#rows"), tpl=$("#tpl");
+$("#histBtn").onclick = () => {
+  const log = store.log;
+  rows.innerHTML = log.map(e=>`<div class="row">
+      <b>${e.code}</b>
+      <span>${new Date(e.at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</span>
+      <a href="${urlFor(e.code)}" target="_blank" rel="noopener">Open</a>
+    </div>`).join("");
+  $("#empty").style.display = log.length ? "none" : "block";
+  tpl.value = store.tpl;
+  hist.classList.add("open");
+};
+$("#close").onclick = () => { store.tpl = tpl.value.trim() || DEFAULT_TPL; hist.classList.remove("open"); };
+
+// Stop the camera when the tab is hidden or when navigating back.
+document.addEventListener("visibilitychange", () => {
+  running = !document.hidden;
+  if(running) loop();
+});
+window.addEventListener("pagehide", () => {
+  running = false;
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+});
+
+(async function boot(){
+  try{
+    const mode = await initDecoder();
+    await startCamera();
+    flipBtn.hidden = false;
+    running = true;
+    stateEl.textContent = "scanning";
+    loop();
+    console.info("decoder:", mode);
+  }catch(err){
+    $("#fatal").style.display="grid";
+    $("#fatal").innerHTML = (err?.name==="NotAllowedError"
+      ? "Camera access is off for this site.<br>Turn it on in your browser's site settings, then reload."
+      : "Couldn't start the camera.<br>Check the page is loaded over HTTPS and nothing else is using the camera.")
+      + '<br><br><a href="/hardly-normal/">Back to Hardly Normal</a>';
+  }
+})();
+</script>
+</body>
+</html>
