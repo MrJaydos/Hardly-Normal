@@ -4,13 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0B1220">
-<title>Toolshed</title>
+<title>Hardly Normal Tools</title>
 <link rel="stylesheet" href="/assets/app.css">
+<link rel="manifest" href="/assets/manifest.webmanifest">
+<link rel="icon" href="/assets/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Hardly Normal Tools">
+<!-- Deliberately no apple-mobile-web-app-capable: iOS's standalone mode has a
+     long-standing WebKit bug (215884) that re-prompts for camera permission
+     on navigation. Staying a normal Safari tab keeps camera access reliable,
+     which matters a lot more here than a chromeless window. -->
 </head>
 <body>
 <main class="shell">
 
-  <span class="eyebrow">Toolshed</span>
+  <span class="eyebrow">Hardly Normal Tools</span>
   <h1>Pick a tool.</h1>
   <p class="lede">Small things that do one job each.</p>
 
@@ -18,11 +26,11 @@
 
   <nav class="tiles">
 
-    <a class="tile" href="/hardly-normal/">
-      <span class="glyph">HN</span>
+    <a class="tile" href="/scan/">
+      <span class="glyph">|||</span>
       <span class="body">
-        <span class="name">Hardly Normal Staff</span>
-        <span class="desc">Barcode lookup and other counter tools</span>
+        <span class="name">Scan a barcode</span>
+        <span class="desc">EAN-13, UPC, ITF and Code 128 — needs camera access</span>
       </span>
       <svg class="chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
@@ -34,5 +42,6 @@
   <p class="foot">Self-hosted</p>
 
 </main>
+<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");</script>
 </body>
 </html>

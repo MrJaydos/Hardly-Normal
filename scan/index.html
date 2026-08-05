@@ -4,8 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="theme-color" content="#0B1220">
-<title>Scan — Hardly Normal Staff</title>
+<title>Scan — Hardly Normal Tools</title>
 <link rel="stylesheet" href="/assets/app.css">
+<link rel="manifest" href="/assets/manifest.webmanifest">
+<link rel="icon" href="/assets/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Hardly Normal Tools">
+<!-- Deliberately no apple-mobile-web-app-capable: see index.html for why. -->
 <style>
   html,body{height:100%;overflow:hidden;overscroll-behavior:none}
   #stage{position:fixed;inset:0;background:#000}
@@ -70,6 +75,12 @@
   #cfgNote{color:var(--muted);font-size:12px;margin-top:8px;line-height:1.5}
   #close{margin-top:26px;width:100%;padding:15px;border-radius:13px;border:1px solid var(--edge);
     background:transparent;color:var(--paper);font:500 15px/1 var(--sans);cursor:pointer}
+  /* Temporary on-screen diagnostics for tracking down a scan issue.
+     Safe to delete once scanning is confirmed reliable — see CLAUDE.md. */
+  #dbg{position:fixed;left:10px;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:5;
+    max-width:calc(100vw - 76px);font-family:var(--mono);font-size:10px;line-height:1.5;
+    color:var(--muted);background:rgba(11,18,32,.72);border:1px solid var(--edge);
+    border-radius:8px;padding:6px 9px;pointer-events:none;word-break:break-word}
   #fatal{position:fixed;inset:0;z-index:20;display:none;place-items:center;padding:32px;
     text-align:center;background:var(--ink);font-size:15px;line-height:1.6}
   #fatal a{color:var(--live);text-decoration:underline}
@@ -85,9 +96,9 @@
 </div>
 
 <header id="top">
-  <a class="back" href="/hardly-normal/">
+  <a class="back" href="/">
     <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    Hardly Normal
+    Hardly Normal Tools
   </a>
   <span id="state">starting</span>
   <button class="icon" id="torch" aria-pressed="false" title="Light" hidden>☀</button>
@@ -95,6 +106,7 @@
 </header>
 
 <button class="icon" id="histBtn" title="Recent scans">☰</button>
+<div id="dbg"></div>
 
 <section id="sheet" aria-live="polite">
   <div id="code">—</div>
@@ -121,6 +133,8 @@
 <div id="fatal"></div>
 
 <script>
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+
 const DEFAULT_TPL = "https://www.harveynorman.com.au/catalogsearch/result/?q={code}";
 const FORMATS = ["ean_13","ean_8","upc_a","upc_e","itf","code_128","code_39"];
 const REPEAT_MS = 2500;
@@ -130,7 +144,8 @@ const cam=$("#cam"), sheet=$("#sheet"), codeEl=$("#code"), metaEl=$("#meta"),
       stateEl=$("#state"), torchBtn=$("#torch"), flipBtn=$("#flip");
 
 let stream=null, track=null, detector=null, zxing=null, canvas=null, ctx=null,
-    facing="environment", lastCode=null, lastAt=0, running=false, current=null;
+    facing="environment", lastCode=null, lastAt=0, running=false, current=null,
+    mode="", tries=0, lastErr=null;
 
 const store = {
   get tpl(){ return localStorage.getItem("hn.tpl") || DEFAULT_TPL },
@@ -200,22 +215,38 @@ async function readFrame(){
     return hits.length ? {value:hits[0].rawValue, fmt:hits[0].format} : null;
   }
   try{
-    const r = zxing.decodeFromCanvas(c);
+    // NB: @zxing/library's BrowserCodeReader has no decodeFromCanvas method —
+    // decode(element) is the synchronous entry point for an already-drawn
+    // canvas. (Calling a nonexistent method here previously threw on every
+    // frame and was silently swallowed below, so nothing ever decoded.)
+    const r = zxing.decode(c);
     return {value:r.getText(), fmt:String(r.getBarcodeFormat()).toLowerCase()};
-  }catch{ return null; }
+  }catch(err){ lastErr = err?.message || String(err); return null; }
 }
 
 async function loop(){
   if(!running) return;
+  tries++;
   try{
     const hit = await readFrame();
     const now = Date.now();
     if(hit && !(hit.value===lastCode && now-lastAt<REPEAT_MS)){
       lastCode=hit.value; lastAt=now; onScan(hit.value, hit.fmt);
     }
-  }catch{}
+  }catch(err){ lastErr = err?.message || String(err); }
   setTimeout(()=>requestAnimationFrame(loop), detector ? 90 : 160);
 }
+
+// Temporary on-screen diagnostics — see CLAUDE.md. `lastErr` is expected to
+// show a "not found" style message most of the time (most frames don't
+// contain a barcode); what matters is that `tries` is climbing and the error
+// isn't the same exception on literally every single attempt.
+const dbgEl = $("#dbg");
+setInterval(() => {
+  if(!dbgEl) return;
+  const vw = cam.videoWidth, vh = cam.videoHeight;
+  dbgEl.textContent = `${mode||"…"} · ${vw}×${vh} · ${tries} tries · ${lastErr||"—"}`;
+}, 700);
 
 let audio=null;
 function chirp(){
@@ -292,7 +323,7 @@ window.addEventListener("pagehide", () => {
 
 (async function boot(){
   try{
-    const mode = await initDecoder();
+    mode = await initDecoder();
     await startCamera();
     flipBtn.hidden = false;
     running = true;
@@ -304,7 +335,7 @@ window.addEventListener("pagehide", () => {
     $("#fatal").innerHTML = (err?.name==="NotAllowedError"
       ? "Camera access is off for this site.<br>Turn it on in your browser's site settings, then reload."
       : "Couldn't start the camera.<br>Check the page is loaded over HTTPS and nothing else is using the camera.")
-      + '<br><br><a href="/hardly-normal/">Back to Hardly Normal</a>';
+      + '<br><br><a href="/">Back to Hardly Normal Tools</a>';
   }
 })();
 </script>

@@ -2,7 +2,8 @@ FROM nginx:alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY index.html /usr/share/nginx/html/
+COPY sw.js /usr/share/nginx/html/
 COPY assets /usr/share/nginx/html/assets
-COPY hardly-normal /usr/share/nginx/html/hardly-normal
+COPY scan /usr/share/nginx/html/scan
 
 EXPOSE 80
