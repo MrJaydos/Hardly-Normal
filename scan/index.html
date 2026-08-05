@@ -429,15 +429,42 @@ window.addEventListener("pagehide", () => {
 });
 
 (async function boot(){
+  // iOS Safari's own camera-permission popup can occasionally freeze and
+  // stop responding to taps entirely — a documented WebKit-level bug, not
+  // something this page's JS can reach into and fix while that native
+  // dialog has focus. What we CAN fix: previously, if that happened, this
+  // page just sat on "starting" forever with zero guidance no matter how
+  // the user got out of it (force-quitting Safari, backgrounding/
+  // returning, etc.). This timeout at least tells them what to try instead
+  // of a silent hang. It doesn't abort startCamera() — if it resolves later
+  // anyway, boot proceeds normally and this message is dismissed.
+  let settled = false;
+  const stuckTimer = setTimeout(() => {
+    if(settled) return;
+    $("#fatal").style.display="grid";
+    $("#fatal").innerHTML =
+      "Camera taking too long to start.<br><br>" +
+      "If the \"Allow Camera\" popup is stuck on screen and won't respond to taps, " +
+      "that's a known Safari glitch — fully close Safari (swipe it away in the app " +
+      "switcher, not just the tab) and reopen this page, rather than retrying the popup." +
+      '<br><br><a id="reloadLink" href="#">Reload this page</a> · <a href="/">Back to Hardly Normal Tools</a>';
+    $("#reloadLink").onclick = (e) => { e.preventDefault(); location.reload(); };
+  }, 10000);
+
   try{
     mode = await initDecoder();
     await startCamera();
+    settled = true;
+    clearTimeout(stuckTimer);
+    $("#fatal").style.display = "none";
     flipBtn.hidden = false;
     running = true;
     stateEl.textContent = "scanning";
     loop();
     console.info("decoder:", mode);
   }catch(err){
+    settled = true;
+    clearTimeout(stuckTimer);
     $("#fatal").style.display="grid";
     $("#fatal").innerHTML = (err?.name==="NotAllowedError"
       ? "Camera access is off for this site.<br>Turn it on in your browser's site settings, then reload."
