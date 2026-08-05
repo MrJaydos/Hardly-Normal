@@ -101,6 +101,7 @@
     Hardly Normal Tools
   </a>
   <span id="state">starting</span>
+  <button class="icon" id="ocr" title="Read a printed code (not a barcode)">Aa</button>
   <button class="icon" id="torch" aria-pressed="false" title="Light" hidden>☀</button>
   <button class="icon" id="flip" title="Switch camera" hidden>⟳</button>
 </header>
@@ -109,7 +110,7 @@
 <div id="dbg"></div>
 
 <section id="sheet" aria-live="polite">
-  <div id="code">—</div>
+  <div id="code" contenteditable="true" spellcheck="false" inputmode="numeric"></div>
   <div id="meta"></div>
   <button id="go">Open on Harvey Norman</button>
   <button id="again">Keep scanning</button>
@@ -141,11 +142,11 @@ const REPEAT_MS = 2500;
 
 const $ = s => document.querySelector(s);
 const cam=$("#cam"), sheet=$("#sheet"), codeEl=$("#code"), metaEl=$("#meta"),
-      stateEl=$("#state"), torchBtn=$("#torch"), flipBtn=$("#flip");
+      stateEl=$("#state"), torchBtn=$("#torch"), flipBtn=$("#flip"), ocrBtn=$("#ocr");
 
 let stream=null, track=null, detector=null, zxing=null, canvas=null, ctx=null,
     facing="environment", lastCode=null, lastAt=0, running=false, current=null,
-    mode="", tries=0, lastErr=null;
+    mode="", tries=0, lastErr=null, tess=null, ocrBusy=false;
 
 const store = {
   get tpl(){ return localStorage.getItem("hn.tpl") || DEFAULT_TPL },
@@ -280,6 +281,26 @@ function onScan(value, fmt){
   store.log = log;
 }
 
+// For product/price tickets where the number that actually resolves on the
+// Harvey Norman site isn't the barcode at all — just plain printed digits
+// next to it — see the OCR capture flow below (ocrBtn.onclick).
+function onOcrResult(rawText){
+  const digits = (rawText.match(/\d+/g)||[]).join("") || rawText.trim();
+  current = digits;
+  chirp();
+  document.body.classList.add("locked");
+  codeEl.textContent = digits || "(nothing read — try again, or type it in)";
+  metaEl.textContent = "printed code (OCR) · check it's right, then tap to open";
+  sheet.classList.add("up");
+  stateEl.textContent = "locked";
+  stateEl.style.color = "var(--lock)";
+  if(digits){
+    const log = store.log.filter(e=>e.code!==digits);
+    log.unshift({code:digits, fmt:"ocr", at:Date.now()});
+    store.log = log;
+  }
+}
+
 function resume(){
   document.body.classList.remove("locked");
   sheet.classList.remove("up");
@@ -294,7 +315,13 @@ function resume(){
   // right away since it fails the lastCode match regardless.
 }
 
-$("#go").onclick = () => { if(current) window.open(urlFor(current), "_blank", "noopener"); };
+// Reads the sheet's live text rather than the `current` variable, so a
+// hand-edited correction (see #code's contenteditable, and onOcrResult)
+// is what actually gets searched.
+$("#go").onclick = () => {
+  const v = codeEl.textContent.trim();
+  if(v) window.open(urlFor(v), "_blank", "noopener");
+};
 $("#again").onclick = resume;
 
 torchBtn.onclick = async () => {
@@ -305,6 +332,63 @@ torchBtn.onclick = async () => {
 flipBtn.onclick = async () => {
   facing = facing==="environment" ? "user" : "environment";
   try{ await startCamera(); }catch{}
+};
+
+// OCR capture, for the printed codes on price tickets that aren't barcodes
+// at all (see CLAUDE.md). Loaded lazily — only on first tap of the "Aa"
+// button — since Tesseract.js's engine + language data is several MB and
+// most scans never need it. One-shot capture-and-recognize on tap, not a
+// continuous per-frame loop like the barcode path: OCR is far slower than
+// barcode decode, and a manual capture also lets the user frame the actual
+// printed number, which sits in an arbitrary spot on the ticket, not the
+// barcode reticle band.
+async function ensureTesseract(){
+  if(tess) return tess;
+  await new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    s.onload=res; s.onerror=()=>rej(new Error("ocr-lib"));
+    document.head.appendChild(s);
+  });
+  tess = await Tesseract.createWorker("eng");
+  // Ticket codes seen so far are plain digits — restricting the charset
+  // meaningfully improves accuracy on a short printed number. Loosen this
+  // (or drop it) if a ticket turns up with letters in the code.
+  await tess.setParameters({ tessedit_char_whitelist: "0123456789" });
+  return tess;
+}
+
+function captureFullFrame(maxDim=1000){
+  const vw=cam.videoWidth, vh=cam.videoHeight;
+  if(!vw) return null;
+  const scale = Math.min(1, maxDim/Math.max(vw,vh));
+  const w=Math.round(vw*scale), h=Math.round(vh*scale);
+  const c=document.createElement("canvas");
+  c.width=w; c.height=h;
+  c.getContext("2d").drawImage(cam, 0,0,w,h);
+  return c;
+}
+
+ocrBtn.onclick = async () => {
+  if(ocrBusy) return;
+  ocrBusy = true;
+  const prevState = stateEl.textContent, prevColor = stateEl.style.color;
+  stateEl.textContent = "reading…";
+  ocrBtn.disabled = true;
+  try{
+    const worker = await ensureTesseract();
+    const frame = captureFullFrame();
+    if(!frame) throw new Error("camera not ready");
+    const { data:{ text } } = await worker.recognize(frame);
+    onOcrResult(text);
+  }catch(err){
+    lastErr = err?.message || String(err);
+    stateEl.textContent = prevState;
+    stateEl.style.color = prevColor;
+  } finally {
+    ocrBusy = false;
+    ocrBtn.disabled = false;
+  }
 };
 
 const hist=$("#hist"), rows=$("#rows"), tpl=$("#tpl");
