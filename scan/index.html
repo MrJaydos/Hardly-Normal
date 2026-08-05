@@ -284,19 +284,29 @@ function onScan(value, fmt){
 // For product/price tickets where the number that actually resolves on the
 // Harvey Norman site isn't the barcode at all — just plain printed digits
 // next to it — see the OCR capture flow below (ocrBtn.onclick).
+// Picks the single longest non-blank line rather than gluing every digit run
+// in the crop together — codes can be alphanumeric with a dash (e.g.
+// "ZHX-00012"), and a loose crop that catches a second line of text
+// shouldn't get mashed into the result.
+function cleanOcrText(rawText){
+  const lines = (rawText||"").split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const best = lines.sort((a,b)=>b.length-a.length)[0] || "";
+  return best.replace(/[^A-Z0-9-]/gi,"").toUpperCase();
+}
+
 function onOcrResult(rawText){
-  const digits = (rawText.match(/\d+/g)||[]).join("") || rawText.trim();
-  current = digits;
+  const code = cleanOcrText(rawText);
+  current = code;
   chirp();
   document.body.classList.add("locked");
-  codeEl.textContent = digits || "(nothing read — try again, or type it in)";
+  codeEl.textContent = code || "(nothing read — try again, or type it in)";
   metaEl.textContent = "printed code (OCR) · check it's right, then tap to open";
   sheet.classList.add("up");
   stateEl.textContent = "locked";
   stateEl.style.color = "var(--lock)";
-  if(digits){
-    const log = store.log.filter(e=>e.code!==digits);
-    log.unshift({code:digits, fmt:"ocr", at:Date.now()});
+  if(code){
+    const log = store.log.filter(e=>e.code!==code);
+    log.unshift({code, fmt:"ocr", at:Date.now()});
     store.log = log;
   }
 }
@@ -339,9 +349,12 @@ flipBtn.onclick = async () => {
 // button — since Tesseract.js's engine + language data is several MB and
 // most scans never need it. One-shot capture-and-recognize on tap, not a
 // continuous per-frame loop like the barcode path: OCR is far slower than
-// barcode decode, and a manual capture also lets the user frame the actual
-// printed number, which sits in an arbitrary spot on the ticket, not the
-// barcode reticle band.
+// barcode decode. Reuses the same cropped band as the barcode reticle
+// (cropFrame()) rather than the whole frame — a full-frame capture picked
+// up the price, spec table, everything else visible on the ticket, and
+// concatenating every digit run found in all of that produced nonsense.
+// Framing the code in the same on-screen box used for barcodes keeps one
+// consistent "put it in the box" mental model for both.
 async function ensureTesseract(){
   if(tess) return tess;
   await new Promise((res,rej)=>{
@@ -351,22 +364,13 @@ async function ensureTesseract(){
     document.head.appendChild(s);
   });
   tess = await Tesseract.createWorker("eng");
-  // Ticket codes seen so far are plain digits — restricting the charset
-  // meaningfully improves accuracy on a short printed number. Loosen this
-  // (or drop it) if a ticket turns up with letters in the code.
-  await tess.setParameters({ tessedit_char_whitelist: "0123456789" });
+  // Ticket codes seen in the wild are a mix of plain digits (e.g. "6521762")
+  // and letter-prefixed with a dash (e.g. "ZHX-00012") — NOT digits-only,
+  // that was wrong. Whitelisting to this set (vs. leaving it unrestricted)
+  // still meaningfully helps accuracy since it rules out lowercase/symbols
+  // a code will never contain.
+  await tess.setParameters({ tessedit_char_whitelist: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-" });
   return tess;
-}
-
-function captureFullFrame(maxDim=1000){
-  const vw=cam.videoWidth, vh=cam.videoHeight;
-  if(!vw) return null;
-  const scale = Math.min(1, maxDim/Math.max(vw,vh));
-  const w=Math.round(vw*scale), h=Math.round(vh*scale);
-  const c=document.createElement("canvas");
-  c.width=w; c.height=h;
-  c.getContext("2d").drawImage(cam, 0,0,w,h);
-  return c;
 }
 
 ocrBtn.onclick = async () => {
@@ -375,9 +379,17 @@ ocrBtn.onclick = async () => {
   const prevState = stateEl.textContent, prevColor = stateEl.style.color;
   stateEl.textContent = "reading…";
   ocrBtn.disabled = true;
+  // cropFrame() reuses one shared canvas with the barcode loop — pause that
+  // loop for the duration of the capture, or it can redraw that same canvas
+  // mid-request and Tesseract ends up reading a different frame than the
+  // one on screen when you tapped. running=false here is synchronous, so
+  // no barcode-loop iteration can start a fresh cropFrame() call from this
+  // point until it's set back below (see the loop()/running comment).
+  const wasRunning = running;
+  running = false;
   try{
     const worker = await ensureTesseract();
-    const frame = captureFullFrame();
+    const frame = cropFrame();
     if(!frame) throw new Error("camera not ready");
     const { data:{ text } } = await worker.recognize(frame);
     onOcrResult(text);
@@ -388,6 +400,7 @@ ocrBtn.onclick = async () => {
   } finally {
     ocrBusy = false;
     ocrBtn.disabled = false;
+    if(wasRunning){ running = true; loop(); }
   }
 };
 
