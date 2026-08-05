@@ -215,11 +215,15 @@ async function readFrame(){
     return hits.length ? {value:hits[0].rawValue, fmt:hits[0].format} : null;
   }
   try{
-    // NB: @zxing/library's BrowserCodeReader has no decodeFromCanvas method —
-    // decode(element) is the synchronous entry point for an already-drawn
-    // canvas. (Calling a nonexistent method here previously threw on every
-    // frame and was silently swallowed below, so nothing ever decoded.)
-    const r = zxing.decode(c);
+    // NB: neither decodeFromCanvas() (doesn't exist on this class) nor
+    // decode(element) (its internal createBinaryBitmap() reads
+    // element.naturalWidth/naturalHeight, which are undefined on a canvas,
+    // and draws into ZXing's own stale/mis-sized internal capture canvas)
+    // work for a raw canvas source. Building the luminance source directly
+    // from our own correctly-sized canvas sidesteps both.
+    const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(c);
+    const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+    const r = zxing.decodeBitmap(binaryBitmap);
     return {value:r.getText(), fmt:String(r.getBarcodeFormat()).toLowerCase()};
   }catch(err){ lastErr = err?.message || String(err); return null; }
 }
