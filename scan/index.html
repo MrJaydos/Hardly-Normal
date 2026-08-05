@@ -285,7 +285,13 @@ function resume(){
   sheet.classList.remove("up");
   stateEl.textContent="scanning";
   stateEl.style.color="var(--live)";
-  lastCode=null;
+  // Deliberately NOT resetting lastCode/lastAt here: the same barcode is
+  // usually still sitting in frame right when this fires, and clearing them
+  // let the very next decoded frame re-trigger onScan instantly — looked
+  // like "keep scanning" did nothing. Leaving them means the existing
+  // REPEAT_MS cooldown (already running from the original scan) suppresses
+  // that immediate re-lock, while a genuinely different code still fires
+  // right away since it fails the lastCode match regardless.
 }
 
 $("#go").onclick = () => { if(current) window.open(urlFor(current), "_blank", "noopener"); };
