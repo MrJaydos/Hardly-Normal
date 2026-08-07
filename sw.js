@@ -8,6 +8,7 @@ const CACHE = "hn-shell-v1";
 const SHELL = [
   "/",
   "/scan/",
+  "/care-calc/",
   "/assets/app.css",
   "/assets/manifest.webmanifest",
   "/assets/icons/icon-192.png",

@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B1220">
+<title>Product Care Calculator — Hardly Normal Tools</title>
+<link rel="stylesheet" href="/assets/app.css">
+<link rel="manifest" href="/assets/manifest.webmanifest">
+<link rel="icon" href="/assets/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Hardly Normal Tools">
+<!-- Deliberately no apple-mobile-web-app-capable: see index.html for why. -->
+<style>
+  /* --- form controls, scoped to this page --- */
+  label.f{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+  input.line{width:100%;padding:13px;border-radius:11px;border:1px solid var(--edge);
+    background:var(--ink-lift);color:var(--paper);font-family:var(--mono);font-size:15px}
+  .field{margin-bottom:20px}
+
+  .splitrow{display:flex;align-items:center;gap:14px;background:var(--ink-lift);
+    border:1px solid var(--edge);border-radius:14px;padding:14px 16px;margin-bottom:24px}
+  .splitrow .txt{flex:1}
+  .splitrow .txt b{display:block;font-size:14px;font-weight:600}
+  .splitrow .txt span{color:var(--muted);font-size:12px;line-height:1.4}
+  .splitrow input{width:64px;flex:none;padding:10px 0;border-radius:9px;border:1px solid var(--edge);
+    background:var(--ink);color:var(--live);font-family:var(--mono);font-size:17px;text-align:center}
+  .splitrow .pct{color:var(--muted);font-family:var(--mono);font-size:14px;flex:none}
+
+  .rowcard{background:var(--ink-lift);border:1px solid var(--edge);border-radius:14px;
+    padding:16px;margin-bottom:12px}
+  .rowcard .rowhead{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .rowcard .rowhead input{flex:1;min-width:0;background:transparent;border:0;
+    border-bottom:1px solid var(--edge);color:var(--paper);font:600 15px/1.3 var(--sans);
+    padding:6px 2px}
+  .rowcard .rmv{flex:none;width:30px;height:30px;border-radius:8px;border:1px solid var(--edge);
+    background:transparent;color:var(--muted);font-size:15px;line-height:1;cursor:pointer}
+  .rowcard .rmv:active{transform:scale(.94)}
+  .rowcard .rowgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .rowcard .rowgrid div label{display:block;font-family:var(--mono);font-size:10px;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+  .rowcard .rowgrid input{width:100%;padding:11px;border-radius:9px;border:1px solid var(--edge);
+    background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:15px}
+  .rowcard .calc{margin-top:12px;font-family:var(--mono);font-size:12px;color:var(--muted);
+    line-height:1.7;min-height:1.7em}
+  .rowcard .calc b{color:var(--live);font-weight:600}
+  .rowcard .calc.warn{color:var(--warn)}
+
+  .addbtn{width:100%;padding:14px;border-radius:12px;border:1px dashed var(--edge);
+    background:transparent;color:var(--muted);font:500 14px/1 var(--sans);cursor:pointer;
+    margin-bottom:26px}
+  .addbtn:active{transform:scale(.99)}
+
+  .primary{display:block;width:100%;padding:17px;border:0;border-radius:14px;
+    background:var(--live);color:#07202B;font:600 17px/1 var(--sans);cursor:pointer}
+  .primary:active{transform:scale(.985)}
+  .primary:disabled{opacity:.4;background:var(--edge);color:var(--muted)}
+  .secondary{display:block;width:100%;margin-top:10px;padding:13px;border:1px solid var(--edge);
+    border-radius:14px;background:transparent;color:var(--paper);font:500 14px/1 var(--sans);
+    cursor:pointer}
+
+  .clearlink{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);background:none;border:0;cursor:pointer;padding:6px 0}
+  .clearlink:active{color:var(--warn)}
+  .headrow{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+
+  /* --- customer-facing view --- */
+  #customerView{display:none}
+  #customerView.open{display:block}
+  #editView.hidden{display:none}
+  .priceCard{background:var(--ink-lift);border:1px solid var(--edge);border-radius:18px;
+    padding:26px 22px;margin-bottom:14px;text-align:center}
+  .priceCard .term{font-family:var(--mono);font-size:12px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--muted)}
+  .priceCard .price{font-size:clamp(36px,11vw,54px);font-weight:700;letter-spacing:-.02em;
+    color:var(--live);margin-top:10px}
+  #custEmpty{color:var(--muted);font-size:14px;padding:30px 0;text-align:center}
+</style>
+</head>
+<body>
+<main class="shell">
+
+  <section id="editView">
+    <a class="back" href="/">
+      <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Hardly Normal Tools
+    </a>
+
+    <div class="headrow">
+      <span class="eyebrow">Product Care</span>
+      <button class="clearlink" id="clearBtn">Clear</button>
+    </div>
+    <h1>Care Calculator</h1>
+    <p class="lede">Enter the Code and Sell $ for each term straight off the POS screen —
+      cost comes from reversing the code, and the customer price is the default 50/50
+      split of the margin (or type your own %).</p>
+
+    <div class="rule"></div>
+
+    <div class="field">
+      <label class="f" for="product">Product (optional — shown to the customer)</label>
+      <input class="line" id="product" placeholder="ACER SWIFT GO14AI" autocapitalize="words" spellcheck="false">
+    </div>
+
+    <div class="splitrow">
+      <div class="txt">
+        <b>Your split of the margin</b>
+        <span>50% = halfway between cost and sell. Higher = closer to sell price.</span>
+      </div>
+      <input id="split" type="number" inputmode="decimal" min="0" max="100" step="1" value="50">
+      <span class="pct">%</span>
+    </div>
+
+    <div id="rows"></div>
+    <button class="addbtn" id="addRow">+ Add another term</button>
+
+    <button class="primary" id="showCust" disabled>Show customer price</button>
+  </section>
+
+  <section id="customerView">
+    <button class="clearlink" id="backBtn">
+      &larr; Back to edit
+    </button>
+    <span class="eyebrow" style="display:block;margin-top:18px">Product Care</span>
+    <h1 id="custProduct">Product Care</h1>
+    <div class="rule"></div>
+    <div id="custRows"></div>
+    <div id="custEmpty">No terms entered yet — go back and fill in a code and sell price.</div>
+    <button class="secondary" id="backBtn2">Back to edit</button>
+  </section>
+
+  <p class="foot">Prices are calculated on this device only</p>
+
+</main>
+<script>
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+
+const $ = s => document.querySelector(s);
+const rowsEl = $("#rows"), addRowBtn = $("#addRow"), showCustBtn = $("#showCust"),
+      productEl = $("#product"), splitEl = $("#split"),
+      editView = $("#editView"), custView = $("#customerView"),
+      custRows = $("#custRows"), custEmpty = $("#custEmpty"), custProduct = $("#custProduct");
+
+const STORE_KEY = "cc.state";
+const DEFAULT_ROWS = () => ([
+  { id: uid(), term: "12 Months", code: "", sell: "" },
+  { id: uid(), term: "24 Months", code: "", sell: "" },
+  { id: uid(), term: "36 Months", code: "", sell: "" },
+]);
+
+function uid(){ return Math.random().toString(36).slice(2, 9); }
+
+function loadState(){
+  try{
+    const raw = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+    if(raw && Array.isArray(raw.rows) && raw.rows.length) return raw;
+  }catch{}
+  return { product: "", split: 50, rows: DEFAULT_ROWS() };
+}
+let state = loadState();
+
+function persist(){
+  localStorage.setItem(STORE_KEY, JSON.stringify(state));
+}
+
+// --- money / cost math ---
+// The POS "Code" column is the cost price, digit-reversed (see CLAUDE.md /
+// the confirmed-by-margin-consistency check this tool was built against).
+// e.g. code "0258" reversed -> "8520" -> cost $85.20 (cents).
+function costFromCode(codeRaw){
+  const digits = String(codeRaw || "").replace(/\D/g, "");
+  if(!digits) return null;
+  const reversed = digits.split("").reverse().join("");
+  const cents = parseInt(reversed, 10);
+  return isFinite(cents) ? cents / 100 : null;
+}
+
+// Rounds to the nearest $10, minus a cent — the "nearest .99" convention
+// chosen for customer-facing prices (e.g. $113.85 -> $109.99).
+function roundTo99(v){
+  if(!isFinite(v) || v <= 0) return null;
+  const base = Math.max(10, Math.round(v / 10) * 10);
+  return base - 0.01;
+}
+
+function fmt(v){ return "$" + v.toFixed(2); }
+
+function calcRow(row, splitPct){
+  const cost = costFromCode(row.code);
+  const sell = parseFloat(row.sell);
+  if(cost == null || !isFinite(sell) || sell <= 0) return null;
+  const margin = sell - cost;
+  const pct = isFinite(splitPct) ? splitPct : 50;
+  const raw = cost + margin * (pct / 100);
+  const price = roundTo99(raw);
+  return { cost, sell, margin, price, suspect: margin <= 0 };
+}
+
+// --- edit view rendering ---
+function renderRows(){
+  rowsEl.innerHTML = "";
+  state.rows.forEach(row => rowsEl.appendChild(buildRowEl(row)));
+  updateShowButton();
+}
+
+function buildRowEl(row){
+  const el = document.createElement("div");
+  el.className = "rowcard";
+  el.innerHTML = `
+    <div class="rowhead">
+      <input class="term" value="${escapeAttr(row.term)}" placeholder="Term (e.g. 12 Months)">
+      <button class="rmv" title="Remove this term">&times;</button>
+    </div>
+    <div class="rowgrid">
+      <div>
+        <label>Code</label>
+        <input class="code" inputmode="numeric" placeholder="0258" value="${escapeAttr(row.code)}">
+      </div>
+      <div>
+        <label>Sell $</label>
+        <input class="sell" type="number" inputmode="decimal" step="0.01" min="0" placeholder="199.00" value="${escapeAttr(row.sell)}">
+      </div>
+    </div>
+    <div class="calc"></div>
+  `;
+  const termEl = el.querySelector(".term"), codeEl = el.querySelector(".code"),
+        sellEl = el.querySelector(".sell"), calcEl = el.querySelector(".calc");
+
+  const sync = () => {
+    row.term = termEl.value;
+    row.code = codeEl.value;
+    row.sell = sellEl.value;
+    persist();
+    renderCalc(calcEl, row);
+    updateShowButton();
+  };
+  termEl.oninput = sync;
+  codeEl.oninput = sync;
+  sellEl.oninput = sync;
+  el.querySelector(".rmv").onclick = () => {
+    state.rows = state.rows.filter(r => r.id !== row.id);
+    if(!state.rows.length) state.rows = DEFAULT_ROWS();
+    persist();
+    renderRows();
+  };
+
+  renderCalc(calcEl, row);
+  return el;
+}
+
+function renderCalc(calcEl, row){
+  const split = parseFloat(splitEl.value);
+  const r = calcRow(row, split);
+  if(!row.code && !row.sell){
+    calcEl.className = "calc";
+    calcEl.textContent = "";
+    return;
+  }
+  if(!r){
+    calcEl.className = "calc warn";
+    calcEl.textContent = "Enter both a code and a sell price to calculate.";
+    return;
+  }
+  if(r.suspect){
+    calcEl.className = "calc warn";
+    calcEl.textContent = `Cost ${fmt(r.cost)} ≥ sell ${fmt(r.sell)} — check the code was read right.`;
+    return;
+  }
+  calcEl.className = "calc";
+  calcEl.textContent = `Cost ${fmt(r.cost)} · Margin ${fmt(r.margin)} · Your price `;
+  const b = document.createElement("b");
+  b.textContent = fmt(r.price);
+  calcEl.appendChild(b);
+}
+
+function recalcAll(){
+  rowsEl.querySelectorAll(".rowcard").forEach((el, i) => renderCalc(el.querySelector(".calc"), state.rows[i]));
+  updateShowButton();
+}
+
+function validRows(){
+  const split = parseFloat(splitEl.value);
+  return state.rows
+    .map(row => ({ row, calc: calcRow(row, split) }))
+    .filter(x => x.calc && !x.calc.suspect);
+}
+
+function updateShowButton(){
+  showCustBtn.disabled = validRows().length === 0;
+}
+
+function escapeAttr(s){
+  return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+}
+
+// --- wiring ---
+productEl.value = state.product || "";
+splitEl.value = isFinite(state.split) ? state.split : 50;
+productEl.oninput = () => { state.product = productEl.value; persist(); };
+splitEl.oninput = () => {
+  state.split = parseFloat(splitEl.value);
+  persist();
+  recalcAll();
+};
+
+addRowBtn.onclick = () => {
+  state.rows.push({ id: uid(), term: `Term ${state.rows.length + 1}`, code: "", sell: "" });
+  persist();
+  renderRows();
+};
+
+$("#clearBtn").onclick = () => {
+  if(!confirm("Clear this form and start over?")) return;
+  state = { product: "", split: 50, rows: DEFAULT_ROWS() };
+  persist();
+  productEl.value = "";
+  splitEl.value = 50;
+  renderRows();
+};
+
+function showCustomerView(){
+  custProduct.textContent = state.product?.trim() || "Product Care";
+  const valid = validRows();
+  custRows.innerHTML = "";
+  custEmpty.style.display = valid.length ? "none" : "block";
+  valid.forEach(({ row, calc }) => {
+    const card = document.createElement("div");
+    card.className = "priceCard";
+    card.innerHTML = `<div class="term">${escapeAttr(row.term || "Term")}</div>
+      <div class="price">${fmt(calc.price)}</div>`;
+    custRows.appendChild(card);
+  });
+  editView.classList.add("hidden");
+  custView.classList.add("open");
+  window.scrollTo(0, 0);
+}
+function showEditView(){
+  custView.classList.remove("open");
+  editView.classList.remove("hidden");
+  window.scrollTo(0, 0);
+}
+
+showCustBtn.onclick = showCustomerView;
+$("#backBtn").onclick = showEditView;
+$("#backBtn2").onclick = showEditView;
+
+renderRows();
+</script>
+</body>
+</html>

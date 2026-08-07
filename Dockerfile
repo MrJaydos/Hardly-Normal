@@ -5,5 +5,6 @@ COPY index.html /usr/share/nginx/html/
 COPY sw.js /usr/share/nginx/html/
 COPY assets /usr/share/nginx/html/assets
 COPY scan /usr/share/nginx/html/scan
+COPY care-calc /usr/share/nginx/html/care-calc
 
 EXPOSE 80
