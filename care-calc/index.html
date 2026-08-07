@@ -30,10 +30,11 @@
 
   .rowcard{background:var(--ink-lift);border:1px solid var(--edge);border-radius:14px;
     padding:16px;margin-bottom:12px}
-  .rowcard .rowhead{display:flex;align-items:center;gap:8px;margin-bottom:12px}
-  .rowcard .rowhead input{flex:1;min-width:0;background:transparent;border:0;
-    border-bottom:1px solid var(--edge);color:var(--paper);font:600 15px/1.3 var(--sans);
-    padding:6px 2px}
+  .rowcard .rowhead{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .rowcard .rowhead .months{flex:none;width:64px;background:transparent;border:0;
+    border-bottom:1px solid var(--edge);color:var(--paper);font:600 17px/1.3 var(--mono);
+    padding:6px 2px;text-align:center}
+  .rowcard .rowhead .monthslabel{flex:1;min-width:0;color:var(--muted);font-size:13px}
   .rowcard .rmv{flex:none;width:30px;height:30px;border-radius:8px;border:1px solid var(--edge);
     background:transparent;color:var(--muted);font-size:15px;line-height:1;cursor:pointer}
   .rowcard .rmv:active{transform:scale(.94)}
@@ -71,10 +72,14 @@
   #editView.hidden{display:none}
   .priceCard{background:var(--ink-lift);border:1px solid var(--edge);border-radius:18px;
     padding:26px 22px;margin-bottom:14px;text-align:center}
-  .priceCard .term{font-family:var(--mono);font-size:12px;letter-spacing:.18em;
-    text-transform:uppercase;color:var(--muted)}
+  .priceCard .title{font-size:13px;line-height:1.5;color:var(--muted);margin-bottom:16px}
+  .priceCard .was{font-family:var(--mono);font-size:15px;color:var(--muted);
+    text-decoration:line-through;text-decoration-color:var(--edge)}
   .priceCard .price{font-size:clamp(36px,11vw,54px);font-weight:700;letter-spacing:-.02em;
-    color:var(--live);margin-top:10px}
+    color:var(--live);margin-top:4px}
+  .priceCard .save{display:inline-block;margin-top:12px;padding:7px 14px;border-radius:999px;
+    background:rgba(53,214,232,.12);color:var(--live);font-family:var(--mono);font-size:12px;
+    letter-spacing:.05em}
   #custEmpty{color:var(--muted);font-size:14px;padding:30px 0;text-align:center}
 </style>
 </head>
@@ -101,6 +106,15 @@
     <div class="field">
       <label class="f" for="product">Product (optional — shown to the customer)</label>
       <input class="line" id="product" placeholder="ACER SWIFT GO14AI" autocapitalize="words" spellcheck="false">
+    </div>
+
+    <div class="splitrow">
+      <div class="txt">
+        <b>Manufacturer warranty</b>
+        <span>Default 1 year — bump it up for the occasional device with 2 or 3.</span>
+      </div>
+      <input id="warranty" type="number" inputmode="decimal" min="0" max="10" step="1" value="1">
+      <span class="pct">yr</span>
     </div>
 
     <div class="splitrow">
@@ -138,15 +152,19 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 
 const $ = s => document.querySelector(s);
 const rowsEl = $("#rows"), addRowBtn = $("#addRow"), showCustBtn = $("#showCust"),
-      productEl = $("#product"), splitEl = $("#split"),
+      productEl = $("#product"), splitEl = $("#split"), warrantyEl = $("#warranty"),
       editView = $("#editView"), custView = $("#customerView"),
       custRows = $("#custRows"), custEmpty = $("#custEmpty"), custProduct = $("#custProduct");
 
 const STORE_KEY = "cc.state";
+// Product Care terms are sold in months (matches the "- 062 12 MTHS" /
+// "24 MTHS" / "36 MTHS" naming on the POS screen), so rows track months
+// rather than a free-text label — the customer-facing title is generated
+// from that number plus the manufacturer warranty (see coverageTitle()).
 const DEFAULT_ROWS = () => ([
-  { id: uid(), term: "12 Months", code: "", sell: "" },
-  { id: uid(), term: "24 Months", code: "", sell: "" },
-  { id: uid(), term: "36 Months", code: "", sell: "" },
+  { id: uid(), months: 12, code: "", sell: "" },
+  { id: uid(), months: 24, code: "", sell: "" },
+  { id: uid(), months: 36, code: "", sell: "" },
 ]);
 
 function uid(){ return Math.random().toString(36).slice(2, 9); }
@@ -154,9 +172,20 @@ function uid(){ return Math.random().toString(36).slice(2, 9); }
 function loadState(){
   try{
     const raw = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
-    if(raw && Array.isArray(raw.rows) && raw.rows.length) return raw;
+    if(raw && Array.isArray(raw.rows) && raw.rows.length){
+      // Migrate rows saved before "months" existed (they had a free-text
+      // "term" like "12 Months") — best-effort pull the leading number.
+      raw.rows.forEach(r => {
+        if(!isFinite(r.months)){
+          const m = parseInt(String(r.term || "").replace(/\D/g, ""), 10);
+          r.months = isFinite(m) && m > 0 ? m : 12;
+        }
+      });
+      if(!isFinite(raw.warrantyYears)) raw.warrantyYears = 1;
+      return raw;
+    }
   }catch{}
-  return { product: "", split: 50, rows: DEFAULT_ROWS() };
+  return { product: "", split: 50, warrantyYears: 1, rows: DEFAULT_ROWS() };
 }
 let state = loadState();
 
@@ -193,8 +222,28 @@ function calcRow(row, splitPct){
   const margin = sell - cost;
   const pct = isFinite(splitPct) ? splitPct : 50;
   const raw = cost + margin * (pct / 100);
-  const price = roundTo99(raw);
-  return { cost, sell, margin, price, suspect: margin <= 0 };
+  let price = roundTo99(raw);
+  // raw is always <= sell (pct maxes out at 100%), but rounding to the
+  // nearest .99 can round it back up past sell on a thin margin — never
+  // show a "discount" that's actually a markup.
+  if(price != null && price > sell) price = sell;
+  const savings = price != null ? sell - price : null;
+  return { cost, sell, margin, price, savings, suspect: margin <= 0 };
+}
+
+// "1 Year Warranty + 2 Years Product Care = 3 Years Coverage" — built from
+// the manufacturer warranty (global, defaults to 1 year) plus this row's
+// Product Care term in months.
+function monthsLabel(m){
+  if(!isFinite(m) || m <= 0) return "0 Months";
+  if(m % 12 === 0){ const y = m / 12; return `${y} Year${y === 1 ? "" : "s"}`; }
+  return `${m} Month${m === 1 ? "" : "s"}`;
+}
+function coverageTitle(warrantyYears, careMonths){
+  const warrantyMonths = Math.round((isFinite(warrantyYears) ? warrantyYears : 1) * 12);
+  const totalMonths = warrantyMonths + careMonths;
+  return `${monthsLabel(warrantyMonths)} Warranty + ${monthsLabel(careMonths)} Product Care `
+    + `= ${monthsLabel(totalMonths)} Coverage`;
 }
 
 // --- edit view rendering ---
@@ -209,7 +258,8 @@ function buildRowEl(row){
   el.className = "rowcard";
   el.innerHTML = `
     <div class="rowhead">
-      <input class="term" value="${escapeAttr(row.term)}" placeholder="Term (e.g. 12 Months)">
+      <input class="months" type="number" inputmode="numeric" min="1" step="1" value="${escapeAttr(row.months)}">
+      <span class="monthslabel">Months of Product Care</span>
       <button class="rmv" title="Remove this term">&times;</button>
     </div>
     <div class="rowgrid">
@@ -224,18 +274,19 @@ function buildRowEl(row){
     </div>
     <div class="calc"></div>
   `;
-  const termEl = el.querySelector(".term"), codeEl = el.querySelector(".code"),
+  const monthsEl = el.querySelector(".months"), codeEl = el.querySelector(".code"),
         sellEl = el.querySelector(".sell"), calcEl = el.querySelector(".calc");
 
   const sync = () => {
-    row.term = termEl.value;
+    const m = parseInt(monthsEl.value, 10);
+    row.months = isFinite(m) && m > 0 ? m : row.months;
     row.code = codeEl.value;
     row.sell = sellEl.value;
     persist();
     renderCalc(calcEl, row);
     updateShowButton();
   };
-  termEl.oninput = sync;
+  monthsEl.oninput = sync;
   codeEl.oninput = sync;
   sellEl.oninput = sync;
   el.querySelector(".rmv").onclick = () => {
@@ -268,7 +319,7 @@ function renderCalc(calcEl, row){
     return;
   }
   calcEl.className = "calc";
-  calcEl.textContent = `Cost ${fmt(r.cost)} · Margin ${fmt(r.margin)} · Your price `;
+  calcEl.textContent = `Cost ${fmt(r.cost)} · Margin ${fmt(r.margin)} · Save ${fmt(r.savings)} · Your price `;
   const b = document.createElement("b");
   b.textContent = fmt(r.price);
   calcEl.appendChild(b);
@@ -297,25 +348,34 @@ function escapeAttr(s){
 // --- wiring ---
 productEl.value = state.product || "";
 splitEl.value = isFinite(state.split) ? state.split : 50;
+warrantyEl.value = isFinite(state.warrantyYears) ? state.warrantyYears : 1;
 productEl.oninput = () => { state.product = productEl.value; persist(); };
 splitEl.oninput = () => {
   state.split = parseFloat(splitEl.value);
   persist();
   recalcAll();
 };
+warrantyEl.oninput = () => {
+  state.warrantyYears = parseFloat(warrantyEl.value);
+  persist();
+  // Warranty doesn't affect price/margin math, only the coverage title
+  // shown on the customer view, so nothing to recalc here — it's read
+  // fresh from state whenever showCustomerView() runs.
+};
 
 addRowBtn.onclick = () => {
-  state.rows.push({ id: uid(), term: `Term ${state.rows.length + 1}`, code: "", sell: "" });
+  state.rows.push({ id: uid(), months: 12, code: "", sell: "" });
   persist();
   renderRows();
 };
 
 $("#clearBtn").onclick = () => {
   if(!confirm("Clear this form and start over?")) return;
-  state = { product: "", split: 50, rows: DEFAULT_ROWS() };
+  state = { product: "", split: 50, warrantyYears: 1, rows: DEFAULT_ROWS() };
   persist();
   productEl.value = "";
   splitEl.value = 50;
+  warrantyEl.value = 1;
   renderRows();
 };
 
@@ -327,8 +387,10 @@ function showCustomerView(){
   valid.forEach(({ row, calc }) => {
     const card = document.createElement("div");
     card.className = "priceCard";
-    card.innerHTML = `<div class="term">${escapeAttr(row.term || "Term")}</div>
-      <div class="price">${fmt(calc.price)}</div>`;
+    card.innerHTML = `<div class="title">${escapeAttr(coverageTitle(state.warrantyYears, row.months))}</div>
+      <div class="was">Was ${fmt(calc.sell)}</div>
+      <div class="price">${fmt(calc.price)}</div>
+      <div class="save">Save ${fmt(calc.savings)}</div>`;
     custRows.appendChild(card);
   });
   editView.classList.add("hidden");
