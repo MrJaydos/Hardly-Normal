@@ -76,9 +76,6 @@
     background:var(--live);color:#07202B;font:600 17px/1 var(--sans);cursor:pointer}
   .primary:active{transform:scale(.985)}
   .primary:disabled{opacity:.4;background:var(--edge);color:var(--muted)}
-  .secondary{display:block;width:100%;margin-top:10px;padding:13px;border:1px solid var(--edge);
-    border-radius:14px;background:transparent;color:var(--paper);font:500 14px/1 var(--sans);
-    cursor:pointer}
 
   .clearlink{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
     color:var(--muted);background:none;border:0;cursor:pointer;padding:6px 0}
@@ -103,8 +100,18 @@
   #editView.hidden{display:none}
   .devSection:first-of-type .devTitle{margin-top:0}
   .devTitle{font-size:16px;font-weight:600;letter-spacing:-.01em;margin:28px 0 12px}
-  .priceCard{background:var(--ink-lift);border:1px solid var(--edge);border-radius:18px;
-    padding:26px 22px;margin-bottom:14px;text-align:center}
+  /* Cards are tappable: staff taps whichever one the customer says they
+     want, so it stays visibly highlighted as a "that one" reminder — see
+     the click handler in showCustomerView(). */
+  .priceCard{position:relative;background:var(--ink-lift);border:1px solid var(--edge);
+    border-radius:18px;padding:26px 22px;margin-bottom:14px;text-align:center;cursor:pointer;
+    transition:border-color .15s ease, background .15s ease, transform .1s ease}
+  .priceCard:active{transform:scale(.99)}
+  .priceCard.selected{border-color:var(--live);background:#132233;
+    box-shadow:0 0 0 2px rgba(53,214,232,.28)}
+  .priceCard .check{display:none;position:absolute;top:14px;right:14px;width:24px;height:24px;
+    border-radius:50%;background:var(--live);color:#07202B;font:700 14px/24px var(--sans)}
+  .priceCard.selected .check{display:block}
   .priceCard .title{font-size:13px;line-height:1.5;color:var(--muted);margin-bottom:16px}
   .priceCard .was{font-family:var(--mono);font-size:15px;color:var(--muted);
     text-decoration:line-through;text-decoration-color:var(--edge)}
@@ -155,6 +162,9 @@
   </section>
 
   <section id="customerView">
+    <!-- Deliberately only one "back to edit" control, small and up here —
+         a customer holding/looking at the phone could tap a big bottom
+         button by accident while this screen is meant for them to read. -->
     <button class="clearlink" id="backBtn">
       &larr; Back to edit
     </button>
@@ -163,7 +173,6 @@
     <div class="rule"></div>
     <div id="custRows"></div>
     <div id="custEmpty">No terms entered yet — go back and fill in a code and sell price.</div>
-    <button class="secondary" id="backBtn2">Back to edit</button>
   </section>
 
   <p class="foot">Prices are calculated on this device only</p>
@@ -474,6 +483,17 @@ $("#clearBtn").onclick = () => {
   renderDevices();
 };
 
+// Which row's card is highlighted on the customer screen — kept outside
+// showCustomerView() (which rebuilds the cards from scratch every time)
+// so the highlight survives a trip back to edit and forward again, as
+// long as that row still exists.
+let selectedRowId = null;
+function applySelection(){
+  custRows.querySelectorAll(".priceCard").forEach(c => {
+    c.classList.toggle("selected", c.dataset.rowId === selectedRowId);
+  });
+}
+
 function showCustomerView(){
   const entries = allValidEntries();
   custRows.innerHTML = "";
@@ -495,16 +515,25 @@ function showCustomerView(){
     devEntries.forEach(({ row, calc }) => {
       const card = document.createElement("div");
       card.className = "priceCard";
-      card.innerHTML = `<div class="title">${escapeAttr(coverageTitle(dev.warrantyYears, row.months))}</div>
+      card.dataset.rowId = row.id;
+      card.innerHTML = `<div class="check">&check;</div>
+        <div class="title">${escapeAttr(coverageTitle(dev.warrantyYears, row.months))}</div>
         <div class="was">Was ${fmt(calc.sell)}</div>
         <div class="price">${fmt(calc.price)}</div>
         <div class="save">Save ${fmt(calc.savings)}</div>
         ${hasDevicePrice ? `<div class="withdevice">Device + Product Care: <b>${fmt(devicePrice + calc.price)}</b></div>` : ""}`;
+      // Tap to mark "this is the one the customer picked" — tap again to
+      // clear it. Only one card highlighted at a time, across all devices.
+      card.onclick = () => {
+        selectedRowId = selectedRowId === row.id ? null : row.id;
+        applySelection();
+      };
       section.appendChild(card);
     });
     custRows.appendChild(section);
   });
 
+  applySelection();
   editView.classList.add("hidden");
   custView.classList.add("open");
   window.scrollTo(0, 0);
@@ -517,7 +546,6 @@ function showEditView(){
 
 showCustBtn.onclick = showCustomerView;
 $("#backBtn").onclick = showEditView;
-$("#backBtn2").onclick = showEditView;
 
 renderDevices();
 </script>
