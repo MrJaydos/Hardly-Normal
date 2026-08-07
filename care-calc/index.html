@@ -58,6 +58,12 @@
     letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
   .rowcard .rowgrid input{width:100%;padding:11px;border-radius:9px;border:1px solid var(--edge);
     background:var(--ink-lift);color:var(--paper);font-family:var(--mono);font-size:15px}
+  .inputrow{display:flex;gap:6px}
+  .inputrow input{flex:1;min-width:0}
+  .ocrmini{flex:none;width:38px;border-radius:9px;border:1px solid var(--edge);
+    background:var(--ink-lift);color:var(--muted);font-size:15px;cursor:pointer;
+    display:grid;place-items:center}
+  .ocrmini:active{transform:scale(.94)}
   /* The cost/margin readout, deliberately the least visually prominent
      thing on the page (small, muted, bottom of its row) — see CLAUDE.md /
      the "don't want it to be obvious" request this was built for. */
@@ -124,6 +130,49 @@
     font-family:var(--mono);font-size:12px;color:var(--muted)}
   .priceCard .withdevice b{color:var(--paper);font-weight:600}
   #custEmpty{color:var(--muted);font-size:14px;padding:30px 0;text-align:center}
+
+  /* --- OCR capture overlay (per-field: Code or Sell $) ---
+     Same shape as /scan/'s camera+Tesseract flow (crop a band, recognize,
+     show an editable result before it's used) but simplified to a single
+     manual "capture" tap rather than a continuous decode loop, and scoped
+     to one field per open rather than the whole page. See CLAUDE.md notes
+     on /scan/'s OCR path for the lazy-load and crop-vs-reticle caveats,
+     which apply here too. */
+  #ocrStage{position:fixed;inset:0;z-index:50;display:none;background:#000}
+  #ocrStage.open{display:block}
+  #ocrCam{position:fixed;inset:0;background:#000}
+  #ocrVideo{width:100%;height:100%;object-fit:cover;display:block}
+  #ocrVeil{position:fixed;inset:0;pointer-events:none;z-index:2;
+    background:radial-gradient(ellipse 74% 20% at 50% 42%, transparent 55%, rgba(11,18,32,.82) 100%)}
+  #ocrReticle{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:3;
+    width:min(72vw,340px);height:78px;border:2.5px solid var(--live);border-radius:12px;
+    pointer-events:none}
+  #ocrTop{position:fixed;top:0;left:0;right:0;z-index:6;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:calc(env(safe-area-inset-top) + 10px) 16px 14px;
+    background:linear-gradient(180deg,rgba(11,18,32,.92),transparent)}
+  #ocrTop .clearlink{padding:8px 4px}
+  #ocrState{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--live)}
+  #ocrShutter{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 34px);
+    transform:translateX(-50%);z-index:6;width:70px;height:70px;border-radius:50%;
+    border:4px solid var(--paper);background:var(--live);cursor:pointer}
+  #ocrShutter:active{transform:translateX(-50%) scale(.92)}
+  #ocrShutter:disabled{opacity:.5}
+  #ocrSheet{position:fixed;left:0;right:0;bottom:0;z-index:7;
+    padding:18px 16px calc(env(safe-area-inset-bottom) + 18px);
+    background:linear-gradient(180deg,rgba(11,18,32,.55),rgba(11,18,32,.97) 30%);
+    border-top:1px solid var(--edge);
+    transform:translateY(101%);transition:transform .24s cubic-bezier(.2,.9,.3,1)}
+  #ocrSheet.up{transform:none}
+  #ocrResult{font-family:var(--mono);font-size:clamp(24px,7vw,34px);letter-spacing:.03em;
+    line-height:1;padding:4px 2px}
+  #ocrUse{display:block;width:100%;margin-top:16px;padding:16px;border:0;border-radius:14px;
+    background:var(--lock);color:#07200F;font:600 16px/1 var(--sans);cursor:pointer}
+  #ocrRetry{display:block;width:100%;margin-top:9px;padding:12px;border:1px solid var(--edge);
+    border-radius:14px;background:transparent;color:var(--muted);font:500 14px/1 var(--sans);
+    cursor:pointer}
+  #ocrFatal{position:fixed;inset:0;z-index:8;display:none;place-items:center;padding:32px;
+    text-align:center;background:var(--ink);font-size:15px;line-height:1.6}
 </style>
 </head>
 <body>
@@ -178,6 +227,26 @@
   <p class="foot">Prices are calculated on this device only</p>
 
 </main>
+
+<!-- OCR capture overlay, shared by every "scan this number" button — see
+     openOcr()/closeOcr() below. Hidden until a row's camera button opens it. -->
+<div id="ocrStage">
+  <div id="ocrCam"><video id="ocrVideo" playsinline muted autoplay></video></div>
+  <div id="ocrVeil"></div>
+  <div id="ocrReticle"></div>
+  <header id="ocrTop">
+    <button class="clearlink" id="ocrCancel">&larr; Cancel</button>
+    <span id="ocrState">starting</span>
+  </header>
+  <button id="ocrShutter" title="Capture"></button>
+  <section id="ocrSheet">
+    <div id="ocrResult" contenteditable="true" spellcheck="false" autocapitalize="off"></div>
+    <button id="ocrUse">Use this</button>
+    <button id="ocrRetry">Retry</button>
+  </section>
+  <div id="ocrFatal"></div>
+</div>
+
 <script>
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 
@@ -320,17 +389,27 @@ function buildRowEl(dev, row){
     <div class="rowgrid">
       <div>
         <label>Code</label>
-        <input class="code" inputmode="numeric" placeholder="0258" value="${escapeAttr(row.code)}">
+        <div class="inputrow">
+          <input class="code" inputmode="numeric" placeholder="0258" value="${escapeAttr(row.code)}">
+          <button type="button" class="ocrmini" data-kind="code" title="Scan this number">&#128247;</button>
+        </div>
       </div>
       <div>
         <label>Sell $</label>
-        <input class="sell" type="number" inputmode="decimal" step="0.01" min="0" placeholder="199.00" value="${escapeAttr(row.sell)}">
+        <div class="inputrow">
+          <input class="sell" type="number" inputmode="decimal" step="0.01" min="0" placeholder="199.00" value="${escapeAttr(row.sell)}">
+          <button type="button" class="ocrmini" data-kind="sell" title="Scan this number">&#128247;</button>
+        </div>
       </div>
     </div>
     <div class="calc"></div>
   `;
   const monthsEl = el.querySelector(".months"), codeEl = el.querySelector(".code"),
         sellEl = el.querySelector(".sell"), calcEl = el.querySelector(".calc");
+
+  el.querySelectorAll(".ocrmini").forEach(btn => {
+    btn.onclick = () => openOcr(btn.dataset.kind === "code" ? codeEl : sellEl, btn.dataset.kind);
+  });
 
   const sync = () => {
     const m = parseInt(monthsEl.value, 10);
@@ -546,6 +625,180 @@ function showEditView(){
 
 showCustBtn.onclick = showCustomerView;
 $("#backBtn").onclick = showEditView;
+
+// --- OCR capture: fills one field (Code or Sell $) from a camera frame ---
+// Reuses /scan/'s proven pattern (lazy-load tesseract.js@5 only on first
+// use, crop a band matching the on-screen reticle, run recognition on that
+// crop rather than the full frame) but simplified to a single manual
+// "capture" tap instead of a continuous per-frame loop — there's no live
+// decode to react to here, just "point it, tap it, check it".
+//
+// NOT verified against a real POS screen from this environment (no camera
+// here) — light text on a dark, possibly screen-glared monitor is a very
+// different OCR target to the printed tickets /scan/'s OCR was built for.
+// That's exactly why the result lands in an editable field before it's
+// used, same as everywhere else in this app: a bad read is a quick retype,
+// not a dead end.
+const ocrStage = $("#ocrStage"), ocrVideo = $("#ocrVideo"), ocrState = $("#ocrState"),
+      ocrShutter = $("#ocrShutter"), ocrSheet = $("#ocrSheet"), ocrResult = $("#ocrResult"),
+      ocrUse = $("#ocrUse"), ocrRetry = $("#ocrRetry"), ocrCancel = $("#ocrCancel"),
+      ocrFatal = $("#ocrFatal");
+
+let ocrStream = null, ocrCanvas = null, ocrCtx = null, ocrWorker = null,
+    ocrTarget = null, ocrKind = null, ocrBusy = false;
+
+async function ocrStartCamera(){
+  if(ocrStream) ocrStream.getTracks().forEach(t => t.stop());
+  ocrStream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+    audio: false,
+  });
+  ocrVideo.srcObject = ocrStream;
+  await ocrVideo.play();
+}
+
+// Crops to a band matching #ocrReticle's on-screen box. Like /scan/'s own
+// cropFrame(), the reticle is sized in viewport units and this crop is
+// sized in video-pixel fractions — they track each other closely enough to
+// frame a short number, but aren't pixel-exact across every aspect ratio.
+function ocrCropFrame(){
+  const vw = ocrVideo.videoWidth, vh = ocrVideo.videoHeight;
+  if(!vw) return null;
+  const w = Math.round(vw * 0.72), h = Math.round(vh * 0.20);
+  const x = Math.round((vw - w) / 2), y = Math.round(vh * 0.42 - h / 2);
+  if(!ocrCanvas){ ocrCanvas = document.createElement("canvas"); ocrCtx = ocrCanvas.getContext("2d", { willReadFrequently: true }); }
+  ocrCanvas.width = w; ocrCanvas.height = h;
+  ocrCtx.drawImage(ocrVideo, x, y, w, h, 0, 0, w, h);
+  return ocrCanvas;
+}
+
+async function ensureOcrWorker(){
+  if(!window.Tesseract){
+    await new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+      s.onload = res; s.onerror = () => rej(new Error("ocr-lib"));
+      document.head.appendChild(s);
+    });
+  }
+  if(!ocrWorker) ocrWorker = await Tesseract.createWorker("eng");
+  return ocrWorker;
+}
+
+// Codes seen on the POS screen so far are plain digits (no letters/dashes,
+// unlike /scan/'s printed ticket codes) — whitelist tight to digits (plus
+// a decimal point for Sell $) since that measurably helps accuracy, and
+// costFromCode() strips non-digits anyway so a stray character wouldn't be
+// used even if one slipped through.
+function cleanOcrValue(rawText, kind){
+  const lines = (rawText || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const best = lines.sort((a, b) => b.length - a.length)[0] || "";
+  if(kind === "sell"){
+    let cleaned = best.replace(/[^0-9.]/g, "");
+    const parts = cleaned.split(".");
+    if(parts.length > 2) cleaned = parts[0] + "." + parts.slice(1).join("");
+    return cleaned;
+  }
+  return best.replace(/\D/g, "");
+}
+
+async function openOcr(inputEl, kind){
+  ocrTarget = inputEl;
+  ocrKind = kind;
+  ocrResult.setAttribute("inputmode", kind === "sell" ? "decimal" : "numeric");
+  ocrSheet.classList.remove("up");
+  ocrShutter.hidden = false;
+  ocrFatal.style.display = "none";
+  ocrState.textContent = "starting";
+  ocrStage.classList.add("open");
+
+  // Same "stuck starting" heuristic as /scan/'s boot(): iOS Safari's camera
+  // permission popup can freeze and stop responding to taps at all, and
+  // there's nothing this page's JS can do to reach into that native dialog.
+  // All we can do is stop the spinner and point at Cancel instead of
+  // leaving "starting" on screen forever with no way out.
+  let settled = false;
+  const stuckTimer = setTimeout(() => {
+    if(settled) return;
+    ocrFatal.style.display = "grid";
+    ocrFatal.innerHTML = "Camera taking too long to start.<br><br>" +
+      "If the \"Allow Camera\" popup is stuck on screen and won't respond to taps, " +
+      "that's a known Safari glitch — tap Cancel above, fully close Safari " +
+      "(swipe it away in the app switcher, not just the tab), and reopen this page.";
+  }, 10000);
+
+  try{
+    await ocrStartCamera();
+    settled = true;
+    clearTimeout(stuckTimer);
+    ocrState.textContent = "ready — tap the button below";
+  }catch(err){
+    settled = true;
+    clearTimeout(stuckTimer);
+    ocrFatal.style.display = "grid";
+    ocrFatal.innerHTML = (err?.name === "NotAllowedError"
+      ? "Camera access is off for this site.<br>Turn it on in your browser's site settings, then try again."
+      : "Couldn't start the camera.<br>Check nothing else is using it, then try again.")
+      + "<br><br>Tap Cancel above.";
+  }
+}
+
+function closeOcr(){
+  if(ocrStream) ocrStream.getTracks().forEach(t => t.stop());
+  ocrStream = null;
+  ocrStage.classList.remove("open");
+  ocrTarget = null;
+}
+
+ocrShutter.onclick = async () => {
+  if(ocrBusy) return;
+  ocrBusy = true;
+  ocrShutter.disabled = true;
+  ocrState.textContent = "reading…";
+  try{
+    const worker = await ensureOcrWorker();
+    await worker.setParameters({
+      tessedit_char_whitelist: ocrKind === "sell" ? "0123456789." : "0123456789",
+    });
+    const frame = ocrCropFrame();
+    if(!frame) throw new Error("camera not ready");
+    const { data: { text } } = await worker.recognize(frame);
+    const value = cleanOcrValue(text, ocrKind);
+    ocrResult.textContent = value || "(nothing read — type it in)";
+    ocrSheet.classList.add("up");
+    ocrShutter.hidden = true;
+    ocrState.textContent = "check it, then Use this";
+  }catch(err){
+    ocrState.textContent = "couldn't read that — try again";
+  }finally{
+    ocrBusy = false;
+    ocrShutter.disabled = false;
+  }
+};
+
+ocrRetry.onclick = () => {
+  ocrSheet.classList.remove("up");
+  ocrShutter.hidden = false;
+  ocrState.textContent = "ready — tap the button below";
+};
+
+ocrUse.onclick = () => {
+  const v = ocrResult.textContent.trim();
+  if(v && ocrTarget){
+    ocrTarget.value = v;
+    // Fires the row's existing oninput handler so this behaves exactly
+    // like the user having typed it — one code path, not a second one.
+    ocrTarget.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  closeOcr();
+};
+
+ocrCancel.onclick = closeOcr;
+
+// Release the camera if the tab is hidden or the page is navigated away
+// from while the overlay happens to be open.
+document.addEventListener("visibilitychange", () => { if(document.hidden) closeOcr(); });
+window.addEventListener("pagehide", () => { if(ocrStream) ocrStream.getTracks().forEach(t => t.stop()); });
 
 renderDevices();
 </script>
