@@ -20,7 +20,7 @@
   .field{margin-bottom:20px}
 
   .splitrow{display:flex;align-items:center;gap:14px;background:var(--ink-lift);
-    border:1px solid var(--edge);border-radius:14px;padding:14px 16px;margin-bottom:24px}
+    border:1px solid var(--edge);border-radius:14px;padding:14px 16px;margin-bottom:20px}
   .splitrow .txt{flex:1}
   .splitrow .txt b{display:block;font-size:14px;font-weight:600}
   .splitrow .txt span{color:var(--muted);font-size:12px;line-height:1.4}
@@ -28,30 +28,49 @@
     background:var(--ink);color:var(--live);font-family:var(--mono);font-size:17px;text-align:center}
   .splitrow .pct{color:var(--muted);font-family:var(--mono);font-size:14px;flex:none}
 
-  .rowcard{background:var(--ink-lift);border:1px solid var(--edge);border-radius:14px;
+  /* One box per device — holds its own warranty, its Product Care term
+     rows, and (optionally) the device's own price at the bottom. Nested
+     controls inside are given the darker --ink background rather than
+     re-using --ink-lift, so they read as "inside" the device card instead
+     of floating at the same visual weight. */
+  .devicecard{background:var(--ink-lift);border:1px solid var(--edge);border-radius:16px;
+    padding:18px;margin-bottom:16px}
+  .devicecard .devhead{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .devicecard .devhead input{flex:1;min-width:0;background:transparent;border:0;
+    border-bottom:1px solid var(--edge);color:var(--paper);font:600 17px/1.3 var(--sans);
+    padding:6px 2px}
+  .devicecard .splitrow{background:var(--ink);margin-bottom:16px}
+  .devicecard input.line{background:var(--ink)}
+
+  .rmv{flex:none;width:30px;height:30px;border-radius:8px;border:1px solid var(--edge);
+    background:transparent;color:var(--muted);font-size:15px;line-height:1;cursor:pointer}
+  .rmv:active{transform:scale(.94)}
+
+  .rowcard{background:var(--ink);border:1px solid var(--edge);border-radius:14px;
     padding:16px;margin-bottom:12px}
   .rowcard .rowhead{display:flex;align-items:center;gap:10px;margin-bottom:12px}
   .rowcard .rowhead .months{flex:none;width:64px;background:transparent;border:0;
     border-bottom:1px solid var(--edge);color:var(--paper);font:600 17px/1.3 var(--mono);
     padding:6px 2px;text-align:center}
   .rowcard .rowhead .monthslabel{flex:1;min-width:0;color:var(--muted);font-size:13px}
-  .rowcard .rmv{flex:none;width:30px;height:30px;border-radius:8px;border:1px solid var(--edge);
-    background:transparent;color:var(--muted);font-size:15px;line-height:1;cursor:pointer}
-  .rowcard .rmv:active{transform:scale(.94)}
   .rowcard .rowgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .rowcard .rowgrid div label{display:block;font-family:var(--mono);font-size:10px;
     letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
   .rowcard .rowgrid input{width:100%;padding:11px;border-radius:9px;border:1px solid var(--edge);
-    background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:15px}
+    background:var(--ink-lift);color:var(--paper);font-family:var(--mono);font-size:15px}
+  /* The cost/margin readout, deliberately the least visually prominent
+     thing on the page (small, muted, bottom of its row) — see CLAUDE.md /
+     the "don't want it to be obvious" request this was built for. */
   .rowcard .calc{margin-top:12px;font-family:var(--mono);font-size:12px;color:var(--muted);
     line-height:1.7;min-height:1.7em}
   .rowcard .calc b{color:var(--live);font-weight:600}
   .rowcard .calc.warn{color:var(--warn)}
 
-  .addbtn{width:100%;padding:14px;border-radius:12px;border:1px dashed var(--edge);
+  .addbtn{width:100%;padding:13px;border-radius:12px;border:1px dashed var(--edge);
     background:transparent;color:var(--muted);font:500 14px/1 var(--sans);cursor:pointer;
-    margin-bottom:26px}
+    margin-bottom:14px}
   .addbtn:active{transform:scale(.99)}
+  .addbtn.device{margin-bottom:24px;padding:15px;color:var(--live);border-color:var(--live)}
 
   .primary{display:block;width:100%;padding:17px;border:0;border-radius:14px;
     background:var(--live);color:#07202B;font:600 17px/1 var(--sans);cursor:pointer}
@@ -66,10 +85,24 @@
   .clearlink:active{color:var(--warn)}
   .headrow{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 
+  /* The margin-split control, moved to the bottom of the page and styled
+     down on purpose (no card, no colour) — this is the "margin box" that
+     shouldn't be the obvious/prominent thing on screen. Still fully
+     functional, just visually quiet. */
+  .marginbox{display:flex;align-items:center;gap:12px;margin:8px 0 24px;opacity:.72}
+  .marginbox .txt{flex:1}
+  .marginbox .txt b{display:block;font-size:12px;font-weight:600;color:var(--muted)}
+  .marginbox .txt span{color:var(--muted);font-size:11px;line-height:1.4}
+  .marginbox input{width:52px;flex:none;padding:8px 0;border-radius:8px;border:1px solid var(--edge);
+    background:transparent;color:var(--muted);font-family:var(--mono);font-size:14px;text-align:center}
+  .marginbox .pct{color:var(--muted);font-family:var(--mono);font-size:12px;flex:none}
+
   /* --- customer-facing view --- */
   #customerView{display:none}
   #customerView.open{display:block}
   #editView.hidden{display:none}
+  .devSection:first-of-type .devTitle{margin-top:0}
+  .devTitle{font-size:16px;font-weight:600;letter-spacing:-.01em;margin:28px 0 12px}
   .priceCard{background:var(--ink-lift);border:1px solid var(--edge);border-radius:18px;
     padding:26px 22px;margin-bottom:14px;text-align:center}
   .priceCard .title{font-size:13px;line-height:1.5;color:var(--muted);margin-bottom:16px}
@@ -80,6 +113,9 @@
   .priceCard .save{display:inline-block;margin-top:12px;padding:7px 14px;border-radius:999px;
     background:rgba(53,214,232,.12);color:var(--live);font-family:var(--mono);font-size:12px;
     letter-spacing:.05em}
+  .priceCard .withdevice{margin-top:14px;padding-top:14px;border-top:1px solid var(--edge);
+    font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .priceCard .withdevice b{color:var(--paper);font-weight:600}
   #custEmpty{color:var(--muted);font-size:14px;padding:30px 0;text-align:center}
 </style>
 </head>
@@ -97,37 +133,23 @@
       <button class="clearlink" id="clearBtn">Clear</button>
     </div>
     <h1>Care Calculator</h1>
-    <p class="lede">Enter the Code and Sell $ for each term straight off the POS screen —
-      cost comes from reversing the code, and the customer price is the default 50/50
-      split of the margin (or type your own %).</p>
+    <p class="lede">One box per device — enter the Code and Sell $ for each term straight
+      off the POS screen. Cost comes from reversing the code, and the customer price
+      defaults to a 50/50 split of the margin.</p>
 
     <div class="rule"></div>
 
-    <div class="field">
-      <label class="f" for="product">Product (optional — shown to the customer)</label>
-      <input class="line" id="product" placeholder="ACER SWIFT GO14AI" autocapitalize="words" spellcheck="false">
-    </div>
+    <div id="devices"></div>
+    <button class="addbtn device" id="addDevice">+ Add another device</button>
 
-    <div class="splitrow">
-      <div class="txt">
-        <b>Manufacturer warranty</b>
-        <span>Default 1 year — bump it up for the occasional device with 2 or 3.</span>
-      </div>
-      <input id="warranty" type="number" inputmode="decimal" min="0" max="10" step="1" value="1">
-      <span class="pct">yr</span>
-    </div>
-
-    <div class="splitrow">
+    <div class="marginbox">
       <div class="txt">
         <b>Your split of the margin</b>
-        <span>50% = halfway between cost and sell. Higher = closer to sell price.</span>
+        <span>50% = halfway between cost and sell.</span>
       </div>
       <input id="split" type="number" inputmode="decimal" min="0" max="100" step="1" value="50">
       <span class="pct">%</span>
     </div>
-
-    <div id="rows"></div>
-    <button class="addbtn" id="addRow">+ Add another term</button>
 
     <button class="primary" id="showCust" disabled>Show customer price</button>
   </section>
@@ -137,7 +159,7 @@
       &larr; Back to edit
     </button>
     <span class="eyebrow" style="display:block;margin-top:18px">Product Care</span>
-    <h1 id="custProduct">Product Care</h1>
+    <h1>Your options</h1>
     <div class="rule"></div>
     <div id="custRows"></div>
     <div id="custEmpty">No terms entered yet — go back and fill in a code and sell price.</div>
@@ -151,41 +173,68 @@
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 
 const $ = s => document.querySelector(s);
-const rowsEl = $("#rows"), addRowBtn = $("#addRow"), showCustBtn = $("#showCust"),
-      productEl = $("#product"), splitEl = $("#split"), warrantyEl = $("#warranty"),
+const devicesEl = $("#devices"), addDeviceBtn = $("#addDevice"),
+      showCustBtn = $("#showCust"), splitEl = $("#split"),
       editView = $("#editView"), custView = $("#customerView"),
-      custRows = $("#custRows"), custEmpty = $("#custEmpty"), custProduct = $("#custProduct");
+      custRows = $("#custRows"), custEmpty = $("#custEmpty");
 
 const STORE_KEY = "cc.state";
+
+function uid(){ return Math.random().toString(36).slice(2, 9); }
+
 // Product Care terms are sold in months (matches the "- 062 12 MTHS" /
 // "24 MTHS" / "36 MTHS" naming on the POS screen), so rows track months
 // rather than a free-text label — the customer-facing title is generated
-// from that number plus the manufacturer warranty (see coverageTitle()).
+// from that number plus the device's manufacturer warranty (coverageTitle()).
 const DEFAULT_ROWS = () => ([
   { id: uid(), months: 12, code: "", sell: "" },
   { id: uid(), months: 24, code: "", sell: "" },
   { id: uid(), months: 36, code: "", sell: "" },
 ]);
+// Warranty lives per device (not globally) — it's a property of the specific
+// device on screen, not the sale as a whole, and staff sometimes pitch a
+// 1yr device and a 2/3yr device in the same visit.
+const DEFAULT_DEVICE = () => ({
+  id: uid(), product: "", warrantyYears: 1, devicePrice: "", rows: DEFAULT_ROWS(),
+});
+const DEFAULT_STATE = () => ({ split: 50, devices: [DEFAULT_DEVICE()] });
 
-function uid(){ return Math.random().toString(36).slice(2, 9); }
+function migrateRow(r){
+  if(!isFinite(r.months)){
+    const m = parseInt(String(r.term || "").replace(/\D/g, ""), 10);
+    r.months = isFinite(m) && m > 0 ? m : 12;
+  }
+}
+function migrateDevice(dev){
+  if(!isFinite(dev.warrantyYears)) dev.warrantyYears = 1;
+  if(dev.devicePrice == null) dev.devicePrice = "";
+  if(!Array.isArray(dev.rows) || !dev.rows.length) dev.rows = DEFAULT_ROWS();
+  dev.rows.forEach(migrateRow);
+}
 
 function loadState(){
   try{
     const raw = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
-    if(raw && Array.isArray(raw.rows) && raw.rows.length){
-      // Migrate rows saved before "months" existed (they had a free-text
-      // "term" like "12 Months") — best-effort pull the leading number.
-      raw.rows.forEach(r => {
-        if(!isFinite(r.months)){
-          const m = parseInt(String(r.term || "").replace(/\D/g, ""), 10);
-          r.months = isFinite(m) && m > 0 ? m : 12;
-        }
-      });
-      if(!isFinite(raw.warrantyYears)) raw.warrantyYears = 1;
-      return raw;
+    if(raw){
+      if(Array.isArray(raw.devices) && raw.devices.length){
+        raw.devices.forEach(migrateDevice);
+        if(!isFinite(raw.split)) raw.split = 50;
+        return raw;
+      }
+      // Pre-multi-device save: one flat {product, warrantyYears, rows} —
+      // fold it into a single device so nothing already entered is lost.
+      if(Array.isArray(raw.rows) && raw.rows.length){
+        const dev = {
+          id: uid(), product: raw.product || "",
+          warrantyYears: isFinite(raw.warrantyYears) ? raw.warrantyYears : 1,
+          devicePrice: "", rows: raw.rows,
+        };
+        migrateDevice(dev);
+        return { split: isFinite(raw.split) ? raw.split : 50, devices: [dev] };
+      }
     }
   }catch{}
-  return { product: "", split: 50, warrantyYears: 1, rows: DEFAULT_ROWS() };
+  return DEFAULT_STATE();
 }
 let state = loadState();
 
@@ -206,7 +255,7 @@ function costFromCode(codeRaw){
 }
 
 // Rounds to the nearest $10, minus a cent — the "nearest .99" convention
-// chosen for customer-facing prices (e.g. $113.85 -> $109.99).
+// for customer-facing prices (e.g. $113.85 -> $109.99).
 function roundTo99(v){
   if(!isFinite(v) || v <= 0) return null;
   const base = Math.max(10, Math.round(v / 10) * 10);
@@ -232,8 +281,7 @@ function calcRow(row, splitPct){
 }
 
 // "1 Year Warranty + 2 Years Product Care = 3 Years Coverage" — built from
-// the manufacturer warranty (global, defaults to 1 year) plus this row's
-// Product Care term in months.
+// this device's manufacturer warranty plus the row's Product Care term.
 function monthsLabel(m){
   if(!isFinite(m) || m <= 0) return "0 Months";
   if(m % 12 === 0){ const y = m / 12; return `${y} Year${y === 1 ? "" : "s"}`; }
@@ -246,14 +294,12 @@ function coverageTitle(warrantyYears, careMonths){
     + `= ${monthsLabel(totalMonths)} Coverage`;
 }
 
-// --- edit view rendering ---
-function renderRows(){
-  rowsEl.innerHTML = "";
-  state.rows.forEach(row => rowsEl.appendChild(buildRowEl(row)));
-  updateShowButton();
+function escapeAttr(s){
+  return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
 }
 
-function buildRowEl(row){
+// --- term row (nested inside a device card) ---
+function buildRowEl(dev, row){
   const el = document.createElement("div");
   el.className = "rowcard";
   el.innerHTML = `
@@ -290,10 +336,10 @@ function buildRowEl(row){
   codeEl.oninput = sync;
   sellEl.oninput = sync;
   el.querySelector(".rmv").onclick = () => {
-    state.rows = state.rows.filter(r => r.id !== row.id);
-    if(!state.rows.length) state.rows = DEFAULT_ROWS();
+    dev.rows = dev.rows.filter(r => r.id !== row.id);
+    if(!dev.rows.length) dev.rows = DEFAULT_ROWS();
     persist();
-    renderRows();
+    renderDevices();
   };
 
   renderCalc(calcEl, row);
@@ -325,74 +371,140 @@ function renderCalc(calcEl, row){
   calcEl.appendChild(b);
 }
 
-function recalcAll(){
-  rowsEl.querySelectorAll(".rowcard").forEach((el, i) => renderCalc(el.querySelector(".calc"), state.rows[i]));
+// --- device card ---
+function buildDeviceEl(dev){
+  const el = document.createElement("div");
+  el.className = "devicecard";
+  el.innerHTML = `
+    <div class="devhead">
+      <input class="devname" placeholder="Device (e.g. ACER SWIFT GO14AI)" autocapitalize="words" spellcheck="false" value="${escapeAttr(dev.product)}">
+      <button class="rmv" title="Remove this device">&times;</button>
+    </div>
+    <div class="splitrow">
+      <div class="txt">
+        <b>Manufacturer warranty</b>
+        <span>Default 1 year — bump it up for the occasional 2 or 3 year device.</span>
+      </div>
+      <input class="devwarranty" type="number" inputmode="decimal" min="0" max="10" step="1" value="${escapeAttr(dev.warrantyYears)}">
+      <span class="pct">yr</span>
+    </div>
+    <div class="devrows"></div>
+    <button class="addbtn devaddrow">+ Add another term</button>
+    <div class="field" style="margin-bottom:0">
+      <label class="f">Device price (optional — shown as a device + Product Care total)</label>
+      <input class="line devprice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="1398.00" value="${escapeAttr(dev.devicePrice)}">
+    </div>
+  `;
+  const nameEl = el.querySelector(".devname"), warrantyEl = el.querySelector(".devwarranty"),
+        priceEl = el.querySelector(".devprice"), rowsEl = el.querySelector(".devrows"),
+        addRowBtn = el.querySelector(".devaddrow");
+
+  nameEl.oninput = () => { dev.product = nameEl.value; persist(); };
+  warrantyEl.oninput = () => { dev.warrantyYears = parseFloat(warrantyEl.value); persist(); };
+  priceEl.oninput = () => { dev.devicePrice = priceEl.value; persist(); };
+  el.querySelector(".rmv").onclick = () => {
+    state.devices = state.devices.filter(d => d.id !== dev.id);
+    if(!state.devices.length) state.devices = [DEFAULT_DEVICE()];
+    persist();
+    renderDevices();
+  };
+  addRowBtn.onclick = () => {
+    dev.rows.push({ id: uid(), months: 12, code: "", sell: "" });
+    persist();
+    renderDevices();
+  };
+
+  dev.rows.forEach(row => rowsEl.appendChild(buildRowEl(dev, row)));
+  return el;
+}
+
+function renderDevices(){
+  devicesEl.innerHTML = "";
+  state.devices.forEach(dev => devicesEl.appendChild(buildDeviceEl(dev)));
+  // Only show the remove-device button when there's more than one — no
+  // point offering to remove the only device on the page.
+  const rmvBtns = devicesEl.querySelectorAll(".devhead .rmv");
+  rmvBtns.forEach(b => { b.style.visibility = state.devices.length > 1 ? "visible" : "hidden"; });
   updateShowButton();
 }
 
-function validRows(){
+function recalcAll(){
+  // Term rows render in the same order as state.devices/dev.rows, so a
+  // flattened list zips 1:1 with the .rowcard elements in the DOM.
+  const flat = state.devices.flatMap(d => d.rows);
+  document.querySelectorAll(".rowcard").forEach((el, i) => renderCalc(el.querySelector(".calc"), flat[i]));
+  updateShowButton();
+}
+
+function allValidEntries(){
   const split = parseFloat(splitEl.value);
-  return state.rows
-    .map(row => ({ row, calc: calcRow(row, split) }))
-    .filter(x => x.calc && !x.calc.suspect);
+  const out = [];
+  state.devices.forEach(dev => {
+    dev.rows.forEach(row => {
+      const calc = calcRow(row, split);
+      if(calc && !calc.suspect) out.push({ dev, row, calc });
+    });
+  });
+  return out;
 }
 
 function updateShowButton(){
-  showCustBtn.disabled = validRows().length === 0;
-}
-
-function escapeAttr(s){
-  return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+  showCustBtn.disabled = allValidEntries().length === 0;
 }
 
 // --- wiring ---
-productEl.value = state.product || "";
 splitEl.value = isFinite(state.split) ? state.split : 50;
-warrantyEl.value = isFinite(state.warrantyYears) ? state.warrantyYears : 1;
-productEl.oninput = () => { state.product = productEl.value; persist(); };
 splitEl.oninput = () => {
   state.split = parseFloat(splitEl.value);
   persist();
   recalcAll();
 };
-warrantyEl.oninput = () => {
-  state.warrantyYears = parseFloat(warrantyEl.value);
-  persist();
-  // Warranty doesn't affect price/margin math, only the coverage title
-  // shown on the customer view, so nothing to recalc here — it's read
-  // fresh from state whenever showCustomerView() runs.
-};
 
-addRowBtn.onclick = () => {
-  state.rows.push({ id: uid(), months: 12, code: "", sell: "" });
+addDeviceBtn.onclick = () => {
+  state.devices.push(DEFAULT_DEVICE());
   persist();
-  renderRows();
+  renderDevices();
 };
 
 $("#clearBtn").onclick = () => {
   if(!confirm("Clear this form and start over?")) return;
-  state = { product: "", split: 50, warrantyYears: 1, rows: DEFAULT_ROWS() };
+  state = DEFAULT_STATE();
   persist();
-  productEl.value = "";
   splitEl.value = 50;
-  warrantyEl.value = 1;
-  renderRows();
+  renderDevices();
 };
 
 function showCustomerView(){
-  custProduct.textContent = state.product?.trim() || "Product Care";
-  const valid = validRows();
+  const entries = allValidEntries();
   custRows.innerHTML = "";
-  custEmpty.style.display = valid.length ? "none" : "block";
-  valid.forEach(({ row, calc }) => {
-    const card = document.createElement("div");
-    card.className = "priceCard";
-    card.innerHTML = `<div class="title">${escapeAttr(coverageTitle(state.warrantyYears, row.months))}</div>
-      <div class="was">Was ${fmt(calc.sell)}</div>
-      <div class="price">${fmt(calc.price)}</div>
-      <div class="save">Save ${fmt(calc.savings)}</div>`;
-    custRows.appendChild(card);
+  custEmpty.style.display = entries.length ? "none" : "block";
+
+  state.devices.forEach(dev => {
+    const devEntries = entries.filter(e => e.dev.id === dev.id);
+    if(!devEntries.length) return;
+    const section = document.createElement("div");
+    section.className = "devSection";
+    const title = document.createElement("div");
+    title.className = "devTitle";
+    title.textContent = dev.product?.trim() || "Product Care";
+    section.appendChild(title);
+
+    const devicePrice = parseFloat(dev.devicePrice);
+    const hasDevicePrice = isFinite(devicePrice) && devicePrice > 0;
+
+    devEntries.forEach(({ row, calc }) => {
+      const card = document.createElement("div");
+      card.className = "priceCard";
+      card.innerHTML = `<div class="title">${escapeAttr(coverageTitle(dev.warrantyYears, row.months))}</div>
+        <div class="was">Was ${fmt(calc.sell)}</div>
+        <div class="price">${fmt(calc.price)}</div>
+        <div class="save">Save ${fmt(calc.savings)}</div>
+        ${hasDevicePrice ? `<div class="withdevice">Device + Product Care: <b>${fmt(devicePrice + calc.price)}</b></div>` : ""}`;
+      section.appendChild(card);
+    });
+    custRows.appendChild(section);
   });
+
   editView.classList.add("hidden");
   custView.classList.add("open");
   window.scrollTo(0, 0);
@@ -407,7 +519,7 @@ showCustBtn.onclick = showCustomerView;
 $("#backBtn").onclick = showEditView;
 $("#backBtn2").onclick = showEditView;
 
-renderRows();
+renderDevices();
 </script>
 </body>
 </html>
