@@ -148,10 +148,11 @@
   #ocrReticle{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:3;
     width:min(72vw,340px);height:78px;border:2.5px solid var(--live);border-radius:12px;
     pointer-events:none}
-  /* Wider/taller box for the whole-table capture — sized to frame all of
-     the "Available product protection offer" rows at once, matched by
+  /* Wider/taller box for the whole-panel capture — sized to frame the
+     Sell Price / Manufacturer Warranty lines *and* all of the "Available
+     product protection offer" rows in one shot, matched by
      ocrCropFrame()'s wFrac/hFrac when ocrMode is "table". */
-  #ocrReticle.table{width:min(92vw,480px);height:210px}
+  #ocrReticle.table{width:min(92vw,480px);height:300px}
   #ocrTop{position:fixed;top:0;left:0;right:0;z-index:6;
     display:flex;align-items:center;justify-content:space-between;
     padding:calc(env(safe-area-inset-top) + 10px) 16px 14px;
@@ -174,9 +175,10 @@
   /* Table-mode review: a compact editable list (Months/Code/Sell per
      parsed row) instead of the single-value #ocrResult — swapped via the
      "tablemode" class on #ocrSheet so one overlay/sheet serves both modes. */
-  #ocrResult, #ocrRows{display:none}
+  #ocrResult, #ocrRows, #ocrHeader{display:none}
   #ocrSheet:not(.tablemode) #ocrResult{display:block}
-  #ocrSheet.tablemode #ocrRows{display:block;max-height:38vh;overflow-y:auto}
+  #ocrSheet.tablemode #ocrHeader{display:block}
+  #ocrSheet.tablemode #ocrRows{display:block;max-height:32vh;overflow-y:auto}
   .ocrRowItem{display:flex;align-items:flex-end;gap:8px;padding:10px 0;border-bottom:1px solid var(--edge)}
   .ocrRowItem:last-child{border-bottom:0}
   .ocrRowItem > div{display:flex;flex-direction:column;gap:5px}
@@ -263,6 +265,7 @@
   <button id="ocrShutter" title="Capture"></button>
   <section id="ocrSheet">
     <div id="ocrResult" contenteditable="true" spellcheck="false" autocapitalize="off"></div>
+    <div id="ocrHeader"></div>
     <div id="ocrRows"></div>
     <button id="ocrUse">Use this</button>
     <button id="ocrRetry">Retry</button>
@@ -491,7 +494,7 @@ function buildDeviceEl(dev){
       <input class="devname" placeholder="Device (e.g. ACER SWIFT GO14AI)" autocapitalize="words" spellcheck="false" value="${escapeAttr(dev.product)}">
       <button class="rmv" title="Remove this device">&times;</button>
     </div>
-    <button type="button" class="addbtn scanTable">&#128247; Scan pricing table from POS screen</button>
+    <button type="button" class="addbtn scanTable">&#128247; Scan POS screen (price, warranty &amp; table)</button>
     <div class="splitrow">
       <div class="txt">
         <b>Manufacturer warranty</b>
@@ -653,11 +656,12 @@ $("#backBtn").onclick = showEditView;
 
 // --- OCR capture: two modes sharing one camera overlay ---
 // "field" fills a single Code or Sell $ input from a close-up crop (the
-// original per-row camera buttons). "table" reads the whole "Available
-// product protection offer" panel in one shot and fills every row at
-// once — since (per how the calculator was scoped) that panel's column
-// layout is fixed, a photo of it can be parsed line-by-line rather than
-// needing a separate photo per field. Both reuse /scan/'s proven pattern:
+// original per-row camera buttons). "table" reads the whole POS panel in
+// one shot — the device's own Sell Price and Manufacturer Warranty (which
+// sit directly above the term table on screen) plus every term row — and
+// fills all of it at once, since that panel's layout is fixed and a photo
+// of it can be parsed by text position rather than needing a separate
+// photo per field. Both modes reuse /scan/'s proven pattern:
 // lazy-load tesseract.js@5 only on first use, crop a band matching the
 // on-screen reticle rather than OCR'ing the whole video frame, one manual
 // "capture" tap rather than a continuous per-frame loop.
@@ -671,7 +675,7 @@ $("#backBtn").onclick = showEditView;
 // written to a row: a bad read is a quick correction, not a dead end.
 const ocrStage = $("#ocrStage"), ocrVideo = $("#ocrVideo"), ocrState = $("#ocrState"),
       ocrShutter = $("#ocrShutter"), ocrSheet = $("#ocrSheet"), ocrResult = $("#ocrResult"),
-      ocrRows = $("#ocrRows"), ocrReticle = $("#ocrReticle"),
+      ocrRows = $("#ocrRows"), ocrHeader = $("#ocrHeader"), ocrReticle = $("#ocrReticle"),
       ocrUse = $("#ocrUse"), ocrRetry = $("#ocrRetry"), ocrCancel = $("#ocrCancel"),
       ocrFatal = $("#ocrFatal");
 
@@ -697,7 +701,7 @@ function ocrCropFrame(){
   const vw = ocrVideo.videoWidth, vh = ocrVideo.videoHeight;
   if(!vw) return null;
   const wFrac = ocrMode === "table" ? 0.92 : 0.72;
-  const hFrac = ocrMode === "table" ? 0.46 : 0.20;
+  const hFrac = ocrMode === "table" ? 0.62 : 0.20;
   const w = Math.round(vw * wFrac), h = Math.round(vh * hFrac);
   const x = Math.round((vw - w) / 2), y = Math.round(vh * 0.42 - h / 2);
   if(!ocrCanvas){ ocrCanvas = document.createElement("canvas"); ocrCtx = ocrCanvas.getContext("2d", { willReadFrequently: true }); }
@@ -779,6 +783,36 @@ function parseTableText(rawText){
   return out;
 }
 
+// Pulls the device's own Sell Price and Manufacturer Warranty out of the
+// same capture as the term-row table — they sit right above that table on
+// the actual POS screen ("Product Code: ... / Sell Price: 1,398.00 /
+// Manufacturer Warranty of 12 Months"), so one wider photo covers both
+// instead of needing a separate capture. Matched on the flattened text
+// (whitespace collapsed) rather than line-by-line like parseTableText(),
+// since the label and its value aren't reliably split onto predictable
+// lines the way the table rows are.
+function parseDeviceHeader(rawText){
+  const flat = (rawText || "").replace(/\s+/g, " ");
+  let devicePrice = "", warrantyYears = "";
+  const sellMatch = flat.match(/Sell\s*Price\s*:?\s*\$?\s*([\d,]+\.\d{2})/i);
+  if(sellMatch) devicePrice = sellMatch[1].replace(/,/g, "");
+  const warrMatch = flat.match(/Warranty[^0-9]{0,25}(\d{1,3})\s*Month/i);
+  if(warrMatch){
+    const months = parseInt(warrMatch[1], 10);
+    if(isFinite(months) && months > 0) warrantyYears = +(months / 12).toFixed(2);
+  }
+  return { devicePrice, warrantyYears };
+}
+
+function renderOcrHeader(header){
+  ocrHeader.innerHTML = `
+    <div class="ocrRowItem">
+      <div class="c"><label>Device price $</label><input id="ocrDevPrice" type="number" step="0.01" value="${escapeAttr(header.devicePrice)}"></div>
+      <div class="m" style="flex:0 0 90px"><label>Warranty yr</label><input id="ocrDevWarranty" type="number" step="1" value="${escapeAttr(header.warrantyYears)}"></div>
+    </div>
+  `;
+}
+
 function renderOcrRows(parsed){
   if(!parsed.length){
     ocrRows.innerHTML = `<div id="ocrRowsEmpty">Couldn't find any rows in that photo — move closer, make sure all
@@ -798,9 +832,16 @@ function renderOcrRows(parsed){
 // corrected a misread before tapping Apply) and writes it into the
 // target device — updating a row if its months already exists there,
 // otherwise adding a new one (e.g. a 5-year term the default 12/24/36
-// rows don't already cover).
-function applyTableRows(){
+// rows don't already cover). Device price / warranty only get overwritten
+// if a value is actually present, so a header OCR miss doesn't blank out
+// something already filled in by hand.
+function applyTableCapture(){
   if(!ocrDevice) return;
+  const priceVal = $("#ocrDevPrice")?.value?.trim();
+  const warrantyVal = $("#ocrDevWarranty")?.value?.trim();
+  if(priceVal) ocrDevice.devicePrice = priceVal;
+  if(warrantyVal && isFinite(parseFloat(warrantyVal))) ocrDevice.warrantyYears = parseFloat(warrantyVal);
+
   ocrRows.querySelectorAll(".ocrRowItem").forEach(item => {
     const months = parseInt(item.querySelector(".orm").value, 10);
     const code = item.querySelector(".orc").value.trim();
@@ -849,7 +890,7 @@ async function openOcrCommon(){
     settled = true;
     clearTimeout(stuckTimer);
     ocrState.textContent = ocrMode === "table"
-      ? "Frame the whole table, then tap the button below"
+      ? "Frame price, warranty & the table, then tap the button below"
       : "ready — tap the button below";
   }catch(err){
     settled = true;
@@ -903,9 +944,11 @@ ocrShutter.onclick = async () => {
     if(ocrMode === "table"){
       // PSM 6 ("assume a single uniform block of text") suits a cropped
       // rectangle of table rows much better than the default page
-      // segmentation, which expects a whole page layout.
+      // segmentation, which expects a whole page layout. Whitelist widened
+      // beyond just the table (":" and "," show up in "Sell Price:" and
+      // "1,398.00") since this same capture now covers that header too.
       await worker.setParameters({
-        tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .-",
+        tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:-/",
         tessedit_pageseg_mode: "6",
       });
     }else{
@@ -919,10 +962,16 @@ ocrShutter.onclick = async () => {
     const { data: { text } } = await worker.recognize(frame);
     if(ocrMode === "table"){
       const parsed = parseTableText(text);
+      const header = parseDeviceHeader(text);
+      renderOcrHeader(header);
       renderOcrRows(parsed);
-      ocrState.textContent = parsed.length
-        ? `Found ${parsed.length} row${parsed.length === 1 ? "" : "s"} — check them, then Apply`
-        : "Nothing matched — check them below, or try again";
+      const found = [];
+      if(parsed.length) found.push(`${parsed.length} row${parsed.length === 1 ? "" : "s"}`);
+      if(header.devicePrice) found.push("device price");
+      if(header.warrantyYears) found.push("warranty");
+      ocrState.textContent = found.length
+        ? `Found ${found.join(", ")} — check them, then Apply`
+        : "Nothing matched — check below, or try again";
     }else{
       const value = cleanOcrValue(text, ocrKind);
       ocrResult.textContent = value || "(nothing read — type it in)";
@@ -942,13 +991,13 @@ ocrRetry.onclick = () => {
   ocrSheet.classList.remove("up");
   ocrShutter.hidden = false;
   ocrState.textContent = ocrMode === "table"
-    ? "Frame the whole table, then tap the button below"
+    ? "Frame price, warranty & the table, then tap the button below"
     : "ready — tap the button below";
 };
 
 ocrUse.onclick = () => {
   if(ocrMode === "table"){
-    applyTableRows();
+    applyTableCapture();
   }else{
     const v = ocrResult.textContent.trim();
     if(v && ocrTarget){
