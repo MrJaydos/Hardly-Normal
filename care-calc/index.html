@@ -77,6 +77,7 @@
     margin-bottom:14px}
   .addbtn:active{transform:scale(.99)}
   .addbtn.device{margin-bottom:24px;padding:15px;color:var(--live);border-color:var(--live)}
+  .addbtn.scanTable{margin-bottom:16px;color:var(--live);border-color:var(--live)}
 
   .primary{display:block;width:100%;padding:17px;border:0;border-radius:14px;
     background:var(--live);color:#07202B;font:600 17px/1 var(--sans);cursor:pointer}
@@ -147,6 +148,10 @@
   #ocrReticle{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:3;
     width:min(72vw,340px);height:78px;border:2.5px solid var(--live);border-radius:12px;
     pointer-events:none}
+  /* Wider/taller box for the whole-table capture — sized to frame all of
+     the "Available product protection offer" rows at once, matched by
+     ocrCropFrame()'s wFrac/hFrac when ocrMode is "table". */
+  #ocrReticle.table{width:min(92vw,480px);height:210px}
   #ocrTop{position:fixed;top:0;left:0;right:0;z-index:6;
     display:flex;align-items:center;justify-content:space-between;
     padding:calc(env(safe-area-inset-top) + 10px) 16px 14px;
@@ -166,6 +171,23 @@
   #ocrSheet.up{transform:none}
   #ocrResult{font-family:var(--mono);font-size:clamp(24px,7vw,34px);letter-spacing:.03em;
     line-height:1;padding:4px 2px}
+  /* Table-mode review: a compact editable list (Months/Code/Sell per
+     parsed row) instead of the single-value #ocrResult — swapped via the
+     "tablemode" class on #ocrSheet so one overlay/sheet serves both modes. */
+  #ocrResult, #ocrRows{display:none}
+  #ocrSheet:not(.tablemode) #ocrResult{display:block}
+  #ocrSheet.tablemode #ocrRows{display:block;max-height:38vh;overflow-y:auto}
+  .ocrRowItem{display:flex;align-items:flex-end;gap:8px;padding:10px 0;border-bottom:1px solid var(--edge)}
+  .ocrRowItem:last-child{border-bottom:0}
+  .ocrRowItem > div{display:flex;flex-direction:column;gap:5px}
+  .ocrRowItem .m{flex:0 0 52px}
+  .ocrRowItem .c{flex:1}
+  .ocrRowItem .s{flex:1}
+  .ocrRowItem label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--muted)}
+  .ocrRowItem input{width:100%;padding:9px;border-radius:8px;border:1px solid var(--edge);
+    background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:14px}
+  #ocrRowsEmpty{color:var(--muted);font-size:13px;padding:6px 0}
   #ocrUse{display:block;width:100%;margin-top:16px;padding:16px;border:0;border-radius:14px;
     background:var(--lock);color:#07200F;font:600 16px/1 var(--sans);cursor:pointer}
   #ocrRetry{display:block;width:100%;margin-top:9px;padding:12px;border:1px solid var(--edge);
@@ -241,6 +263,7 @@
   <button id="ocrShutter" title="Capture"></button>
   <section id="ocrSheet">
     <div id="ocrResult" contenteditable="true" spellcheck="false" autocapitalize="off"></div>
+    <div id="ocrRows"></div>
     <button id="ocrUse">Use this</button>
     <button id="ocrRetry">Retry</button>
   </section>
@@ -468,6 +491,7 @@ function buildDeviceEl(dev){
       <input class="devname" placeholder="Device (e.g. ACER SWIFT GO14AI)" autocapitalize="words" spellcheck="false" value="${escapeAttr(dev.product)}">
       <button class="rmv" title="Remove this device">&times;</button>
     </div>
+    <button type="button" class="addbtn scanTable">&#128247; Scan pricing table from POS screen</button>
     <div class="splitrow">
       <div class="txt">
         <b>Manufacturer warranty</b>
@@ -485,11 +509,12 @@ function buildDeviceEl(dev){
   `;
   const nameEl = el.querySelector(".devname"), warrantyEl = el.querySelector(".devwarranty"),
         priceEl = el.querySelector(".devprice"), rowsEl = el.querySelector(".devrows"),
-        addRowBtn = el.querySelector(".devaddrow");
+        addRowBtn = el.querySelector(".devaddrow"), scanTableBtn = el.querySelector(".scanTable");
 
   nameEl.oninput = () => { dev.product = nameEl.value; persist(); };
   warrantyEl.oninput = () => { dev.warrantyYears = parseFloat(warrantyEl.value); persist(); };
   priceEl.oninput = () => { dev.devicePrice = priceEl.value; persist(); };
+  scanTableBtn.onclick = () => openTableOcr(dev);
   el.querySelector(".rmv").onclick = () => {
     state.devices = state.devices.filter(d => d.id !== dev.id);
     if(!state.devices.length) state.devices = [DEFAULT_DEVICE()];
@@ -626,26 +651,32 @@ function showEditView(){
 showCustBtn.onclick = showCustomerView;
 $("#backBtn").onclick = showEditView;
 
-// --- OCR capture: fills one field (Code or Sell $) from a camera frame ---
-// Reuses /scan/'s proven pattern (lazy-load tesseract.js@5 only on first
-// use, crop a band matching the on-screen reticle, run recognition on that
-// crop rather than the full frame) but simplified to a single manual
-// "capture" tap instead of a continuous per-frame loop — there's no live
-// decode to react to here, just "point it, tap it, check it".
+// --- OCR capture: two modes sharing one camera overlay ---
+// "field" fills a single Code or Sell $ input from a close-up crop (the
+// original per-row camera buttons). "table" reads the whole "Available
+// product protection offer" panel in one shot and fills every row at
+// once — since (per how the calculator was scoped) that panel's column
+// layout is fixed, a photo of it can be parsed line-by-line rather than
+// needing a separate photo per field. Both reuse /scan/'s proven pattern:
+// lazy-load tesseract.js@5 only on first use, crop a band matching the
+// on-screen reticle rather than OCR'ing the whole video frame, one manual
+// "capture" tap rather than a continuous per-frame loop.
 //
 // NOT verified against a real POS screen from this environment (no camera
 // here) — light text on a dark, possibly screen-glared monitor is a very
-// different OCR target to the printed tickets /scan/'s OCR was built for.
-// That's exactly why the result lands in an editable field before it's
-// used, same as everywhere else in this app: a bad read is a quick retype,
-// not a dead end.
+// different OCR target to the printed tickets /scan/'s OCR was built for,
+// and table mode adds a second layer of risk on top (parsing which number
+// is Code vs. Sell $ vs. the per-month Calc column from noisy text). That's
+// exactly why both modes land in an editable review before anything is
+// written to a row: a bad read is a quick correction, not a dead end.
 const ocrStage = $("#ocrStage"), ocrVideo = $("#ocrVideo"), ocrState = $("#ocrState"),
       ocrShutter = $("#ocrShutter"), ocrSheet = $("#ocrSheet"), ocrResult = $("#ocrResult"),
+      ocrRows = $("#ocrRows"), ocrReticle = $("#ocrReticle"),
       ocrUse = $("#ocrUse"), ocrRetry = $("#ocrRetry"), ocrCancel = $("#ocrCancel"),
       ocrFatal = $("#ocrFatal");
 
 let ocrStream = null, ocrCanvas = null, ocrCtx = null, ocrWorker = null,
-    ocrTarget = null, ocrKind = null, ocrBusy = false;
+    ocrMode = "field", ocrTarget = null, ocrKind = null, ocrDevice = null, ocrBusy = false;
 
 async function ocrStartCamera(){
   if(ocrStream) ocrStream.getTracks().forEach(t => t.stop());
@@ -657,14 +688,17 @@ async function ocrStartCamera(){
   await ocrVideo.play();
 }
 
-// Crops to a band matching #ocrReticle's on-screen box. Like /scan/'s own
+// Crops to a band matching #ocrReticle's on-screen box — a small band for
+// "field" mode, a much wider/taller one for "table" mode. Like /scan/'s own
 // cropFrame(), the reticle is sized in viewport units and this crop is
 // sized in video-pixel fractions — they track each other closely enough to
-// frame a short number, but aren't pixel-exact across every aspect ratio.
+// frame the target, but aren't pixel-exact across every aspect ratio.
 function ocrCropFrame(){
   const vw = ocrVideo.videoWidth, vh = ocrVideo.videoHeight;
   if(!vw) return null;
-  const w = Math.round(vw * 0.72), h = Math.round(vh * 0.20);
+  const wFrac = ocrMode === "table" ? 0.92 : 0.72;
+  const hFrac = ocrMode === "table" ? 0.46 : 0.20;
+  const w = Math.round(vw * wFrac), h = Math.round(vh * hFrac);
   const x = Math.round((vw - w) / 2), y = Math.round(vh * 0.42 - h / 2);
   if(!ocrCanvas){ ocrCanvas = document.createElement("canvas"); ocrCtx = ocrCanvas.getContext("2d", { willReadFrequently: true }); }
   ocrCanvas.width = w; ocrCanvas.height = h;
@@ -702,10 +736,93 @@ function cleanOcrValue(rawText, kind){
   return best.replace(/\D/g, "");
 }
 
-async function openOcr(inputEl, kind){
-  ocrTarget = inputEl;
-  ocrKind = kind;
-  ocrResult.setAttribute("inputmode", kind === "sell" ? "decimal" : "numeric");
+// Parses the whole-table OCR text into {months, code, sell} rows. Assumes
+// the fixed column order seen on the actual POS screen this was built
+// against: "PRODUCT CARE REPLACE - 062 12 MTHS   0258   199.00   16.58" —
+// description (ending in "n MTHS"), then Code (plain digits, no decimal
+// point), then Sell $ and the per-month Calc figure (both decimals; Sell $
+// is whichever comes first). Finds the "MTHS" token on each line and reads
+// only the numeric tokens after it, so it doesn't need to understand the
+// description text at all — just where that text ends.
+function parseTableText(rawText){
+  const lines = (rawText || "").split(/\r?\n/);
+  const out = [];
+  for(const raw of lines){
+    const line = raw.trim();
+    if(!line) continue;
+    const tokens = line.split(/\s+/);
+    const mthsIdx = tokens.findIndex(t => /MTH/i.test(t));
+    if(mthsIdx === -1) continue;
+
+    // The months number is usually its own token right before "MTHS", but
+    // OCR sometimes glues them together ("12MTHS") — handle both.
+    let monthsStr = (tokens[mthsIdx].match(/\d+/) || [])[0];
+    if(!monthsStr && mthsIdx > 0) monthsStr = (tokens[mthsIdx - 1].match(/\d+/) || [])[0];
+    const months = parseInt(monthsStr, 10);
+    if(!isFinite(months) || months <= 0) continue;
+
+    const numericTokens = tokens.slice(mthsIdx + 1)
+      .map(t => t.replace(/,/g, ""))
+      .filter(t => /^\d+(\.\d+)?$/.test(t));
+    const codeTok = numericTokens.find(t => !t.includes("."));
+    // Sell $ and the per-month Calc figure are both decimals, but Sell $ is
+    // always much larger (Calc is Sell spread over 12-36 months) — picking
+    // the larger of the two decimal tokens is more robust than assuming
+    // column order survived OCR, which it doesn't always.
+    const decimalToks = numericTokens.filter(t => t.includes("."));
+    const sellTok = decimalToks.length
+      ? decimalToks.reduce((a, b) => (parseFloat(b) > parseFloat(a) ? b : a))
+      : undefined;
+    if(!codeTok && !sellTok) continue;
+    out.push({ months, code: codeTok || "", sell: sellTok || "" });
+  }
+  return out;
+}
+
+function renderOcrRows(parsed){
+  if(!parsed.length){
+    ocrRows.innerHTML = `<div id="ocrRowsEmpty">Couldn't find any rows in that photo — move closer, make sure all
+      the "n MTHS" lines are in frame, and try again.</div>`;
+    return;
+  }
+  ocrRows.innerHTML = parsed.map((r, i) => `
+    <div class="ocrRowItem" data-i="${i}">
+      <div class="m"><label>Mo</label><input class="orm" type="number" value="${escapeAttr(r.months)}"></div>
+      <div class="c"><label>Code</label><input class="orc" value="${escapeAttr(r.code)}"></div>
+      <div class="s"><label>Sell $</label><input class="ors" type="number" step="0.01" value="${escapeAttr(r.sell)}"></div>
+    </div>
+  `).join("");
+}
+
+// Reads whatever's currently in the review inputs (staff may have
+// corrected a misread before tapping Apply) and writes it into the
+// target device — updating a row if its months already exists there,
+// otherwise adding a new one (e.g. a 5-year term the default 12/24/36
+// rows don't already cover).
+function applyTableRows(){
+  if(!ocrDevice) return;
+  ocrRows.querySelectorAll(".ocrRowItem").forEach(item => {
+    const months = parseInt(item.querySelector(".orm").value, 10);
+    const code = item.querySelector(".orc").value.trim();
+    const sell = item.querySelector(".ors").value.trim();
+    if(!isFinite(months) || months <= 0 || (!code && !sell)) return;
+    const existing = ocrDevice.rows.find(r => r.months === months);
+    if(existing){
+      if(code) existing.code = code;
+      if(sell) existing.sell = sell;
+    }else{
+      ocrDevice.rows.push({ id: uid(), months, code, sell });
+    }
+  });
+  persist();
+  renderDevices();
+}
+
+// Shared boot sequence for both modes: show the stage, start the camera,
+// handle the "stuck starting" case. Mode-specific state (ocrMode/ocrTarget/
+// ocrKind/ocrDevice, reticle size, sheet contents, button label) must
+// already be set by the caller before this runs.
+async function openOcrCommon(){
   ocrSheet.classList.remove("up");
   ocrShutter.hidden = false;
   ocrFatal.style.display = "none";
@@ -731,7 +848,9 @@ async function openOcr(inputEl, kind){
     await ocrStartCamera();
     settled = true;
     clearTimeout(stuckTimer);
-    ocrState.textContent = "ready — tap the button below";
+    ocrState.textContent = ocrMode === "table"
+      ? "Frame the whole table, then tap the button below"
+      : "ready — tap the button below";
   }catch(err){
     settled = true;
     clearTimeout(stuckTimer);
@@ -743,11 +862,35 @@ async function openOcr(inputEl, kind){
   }
 }
 
+async function openOcr(inputEl, kind){
+  ocrMode = "field";
+  ocrTarget = inputEl;
+  ocrKind = kind;
+  ocrDevice = null;
+  ocrReticle.classList.remove("table");
+  ocrSheet.classList.remove("tablemode");
+  ocrUse.textContent = "Use this";
+  ocrResult.setAttribute("inputmode", kind === "sell" ? "decimal" : "numeric");
+  await openOcrCommon();
+}
+
+async function openTableOcr(dev){
+  ocrMode = "table";
+  ocrTarget = null;
+  ocrKind = null;
+  ocrDevice = dev;
+  ocrReticle.classList.add("table");
+  ocrSheet.classList.add("tablemode");
+  ocrUse.textContent = "Apply to device";
+  await openOcrCommon();
+}
+
 function closeOcr(){
   if(ocrStream) ocrStream.getTracks().forEach(t => t.stop());
   ocrStream = null;
   ocrStage.classList.remove("open");
   ocrTarget = null;
+  ocrDevice = null;
 }
 
 ocrShutter.onclick = async () => {
@@ -757,17 +900,36 @@ ocrShutter.onclick = async () => {
   ocrState.textContent = "reading…";
   try{
     const worker = await ensureOcrWorker();
-    await worker.setParameters({
-      tessedit_char_whitelist: ocrKind === "sell" ? "0123456789." : "0123456789",
-    });
+    if(ocrMode === "table"){
+      // PSM 6 ("assume a single uniform block of text") suits a cropped
+      // rectangle of table rows much better than the default page
+      // segmentation, which expects a whole page layout.
+      await worker.setParameters({
+        tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .-",
+        tessedit_pageseg_mode: "6",
+      });
+    }else{
+      await worker.setParameters({
+        tessedit_char_whitelist: ocrKind === "sell" ? "0123456789." : "0123456789",
+        tessedit_pageseg_mode: "3",
+      });
+    }
     const frame = ocrCropFrame();
     if(!frame) throw new Error("camera not ready");
     const { data: { text } } = await worker.recognize(frame);
-    const value = cleanOcrValue(text, ocrKind);
-    ocrResult.textContent = value || "(nothing read — type it in)";
+    if(ocrMode === "table"){
+      const parsed = parseTableText(text);
+      renderOcrRows(parsed);
+      ocrState.textContent = parsed.length
+        ? `Found ${parsed.length} row${parsed.length === 1 ? "" : "s"} — check them, then Apply`
+        : "Nothing matched — check them below, or try again";
+    }else{
+      const value = cleanOcrValue(text, ocrKind);
+      ocrResult.textContent = value || "(nothing read — type it in)";
+      ocrState.textContent = "check it, then Use this";
+    }
     ocrSheet.classList.add("up");
     ocrShutter.hidden = true;
-    ocrState.textContent = "check it, then Use this";
   }catch(err){
     ocrState.textContent = "couldn't read that — try again";
   }finally{
@@ -779,16 +941,22 @@ ocrShutter.onclick = async () => {
 ocrRetry.onclick = () => {
   ocrSheet.classList.remove("up");
   ocrShutter.hidden = false;
-  ocrState.textContent = "ready — tap the button below";
+  ocrState.textContent = ocrMode === "table"
+    ? "Frame the whole table, then tap the button below"
+    : "ready — tap the button below";
 };
 
 ocrUse.onclick = () => {
-  const v = ocrResult.textContent.trim();
-  if(v && ocrTarget){
-    ocrTarget.value = v;
-    // Fires the row's existing oninput handler so this behaves exactly
-    // like the user having typed it — one code path, not a second one.
-    ocrTarget.dispatchEvent(new Event("input", { bubbles: true }));
+  if(ocrMode === "table"){
+    applyTableRows();
+  }else{
+    const v = ocrResult.textContent.trim();
+    if(v && ocrTarget){
+      ocrTarget.value = v;
+      // Fires the row's existing oninput handler so this behaves exactly
+      // like the user having typed it — one code path, not a second one.
+      ocrTarget.dispatchEvent(new Event("input", { bubbles: true }));
+    }
   }
   closeOcr();
 };
