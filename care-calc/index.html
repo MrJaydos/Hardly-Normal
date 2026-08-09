@@ -190,6 +190,11 @@
   .ocrRowItem input{width:100%;padding:9px;border-radius:8px;border:1px solid var(--edge);
     background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:14px}
   #ocrRowsEmpty{color:var(--muted);font-size:13px;padding:6px 0}
+  #ocrRawToggle{display:block;margin-top:14px;padding:2px 0}
+  #ocrRawText{display:none;margin-top:8px;padding:10px;background:var(--ink);
+    border:1px solid var(--edge);border-radius:10px;font-family:var(--mono);font-size:11px;
+    line-height:1.5;color:var(--muted);white-space:pre-wrap;max-height:22vh;overflow-y:auto}
+  #ocrRawText.open{display:block}
   #ocrUse{display:block;width:100%;margin-top:16px;padding:16px;border:0;border-radius:14px;
     background:var(--lock);color:#07200F;font:600 16px/1 var(--sans);cursor:pointer}
   #ocrRetry{display:block;width:100%;margin-top:9px;padding:12px;border:1px solid var(--edge);
@@ -267,6 +272,11 @@
     <div id="ocrResult" contenteditable="true" spellcheck="false" autocapitalize="off"></div>
     <div id="ocrHeader"></div>
     <div id="ocrRows"></div>
+    <!-- Temporary diagnostic, same idea as /scan/'s #dbg readout — lets a
+         missed row/field be diagnosed from the actual OCR text next time,
+         instead of guessing. Safe to remove once table OCR is reliable. -->
+    <button type="button" class="clearlink" id="ocrRawToggle">Show raw text read</button>
+    <pre id="ocrRawText"></pre>
     <button id="ocrUse">Use this</button>
     <button id="ocrRetry">Retry</button>
   </section>
@@ -677,10 +687,11 @@ const ocrStage = $("#ocrStage"), ocrVideo = $("#ocrVideo"), ocrState = $("#ocrSt
       ocrShutter = $("#ocrShutter"), ocrSheet = $("#ocrSheet"), ocrResult = $("#ocrResult"),
       ocrRows = $("#ocrRows"), ocrHeader = $("#ocrHeader"), ocrReticle = $("#ocrReticle"),
       ocrUse = $("#ocrUse"), ocrRetry = $("#ocrRetry"), ocrCancel = $("#ocrCancel"),
-      ocrFatal = $("#ocrFatal");
+      ocrFatal = $("#ocrFatal"), ocrRawToggle = $("#ocrRawToggle"), ocrRawText = $("#ocrRawText");
 
 let ocrStream = null, ocrCanvas = null, ocrCtx = null, ocrWorker = null,
-    ocrMode = "field", ocrTarget = null, ocrKind = null, ocrDevice = null, ocrBusy = false;
+    ocrMode = "field", ocrTarget = null, ocrKind = null, ocrDevice = null, ocrBusy = false,
+    ocrLastRawText = "";
 
 async function ocrStartCamera(){
   if(ocrStream) ocrStream.getTracks().forEach(t => t.stop());
@@ -745,29 +756,31 @@ function cleanOcrValue(rawText, kind){
 // against: "PRODUCT CARE REPLACE - 062 12 MTHS   0258   199.00   16.58" —
 // description (ending in "n MTHS"), then Code (plain digits, no decimal
 // point), then Sell $ and the per-month Calc figure (both decimals; Sell $
-// is whichever comes first). Finds the "MTHS" token on each line and reads
-// only the numeric tokens after it, so it doesn't need to understand the
-// description text at all — just where that text ends.
+// is whichever comes first).
+//
+// Works on the whole flattened text (newlines collapsed to spaces) rather
+// than splitting into lines first and matching per line — a POS screen's
+// highlighted/selected row (blue selection bar) has been observed in
+// practice to throw off Tesseract's line segmentation around that row
+// (its text merging onto a neighbouring line, or wrapping across two),
+// which silently dropped that entire row under the old line-by-line
+// version even though the text was still legible in the photo. Finding
+// every "n MTHS" match in the flattened text and bounding each row's
+// number-search to "everything up to the next MTHS match" sidesteps that:
+// it doesn't care which OCR "line" a row's numbers ended up on, just that
+// they appear before the next row's own "MTHS" marker.
 function parseTableText(rawText){
-  const lines = (rawText || "").split(/\r?\n/);
+  const flat = (rawText || "").replace(/\r?\n/g, " ");
+  const mthsMatches = [...flat.matchAll(/(\d{1,3})\s*MTHS?/gi)];
   const out = [];
-  for(const raw of lines){
-    const line = raw.trim();
-    if(!line) continue;
-    const tokens = line.split(/\s+/);
-    const mthsIdx = tokens.findIndex(t => /MTH/i.test(t));
-    if(mthsIdx === -1) continue;
+  mthsMatches.forEach((m, i) => {
+    const months = parseInt(m[1], 10);
+    if(!isFinite(months) || months <= 0) return;
 
-    // The months number is usually its own token right before "MTHS", but
-    // OCR sometimes glues them together ("12MTHS") — handle both.
-    let monthsStr = (tokens[mthsIdx].match(/\d+/) || [])[0];
-    if(!monthsStr && mthsIdx > 0) monthsStr = (tokens[mthsIdx - 1].match(/\d+/) || [])[0];
-    const months = parseInt(monthsStr, 10);
-    if(!isFinite(months) || months <= 0) continue;
-
-    const numericTokens = tokens.slice(mthsIdx + 1)
-      .map(t => t.replace(/,/g, ""))
-      .filter(t => /^\d+(\.\d+)?$/.test(t));
+    const start = m.index + m[0].length;
+    const end = i + 1 < mthsMatches.length ? mthsMatches[i + 1].index : flat.length;
+    const tail = flat.slice(start, end);
+    const numericTokens = (tail.match(/\d+(?:\.\d+)?/g) || []).map(t => t.replace(/,/g, ""));
     const codeTok = numericTokens.find(t => !t.includes("."));
     // Sell $ and the per-month Calc figure are both decimals, but Sell $ is
     // always much larger (Calc is Sell spread over 12-36 months) — picking
@@ -777,9 +790,9 @@ function parseTableText(rawText){
     const sellTok = decimalToks.length
       ? decimalToks.reduce((a, b) => (parseFloat(b) > parseFloat(a) ? b : a))
       : undefined;
-    if(!codeTok && !sellTok) continue;
+    if(!codeTok && !sellTok) return;
     out.push({ months, code: codeTok || "", sell: sellTok || "" });
-  }
+  });
   return out;
 }
 
@@ -960,6 +973,9 @@ ocrShutter.onclick = async () => {
     const frame = ocrCropFrame();
     if(!frame) throw new Error("camera not ready");
     const { data: { text } } = await worker.recognize(frame);
+    ocrLastRawText = text || "";
+    ocrRawText.classList.remove("open");
+    ocrRawToggle.textContent = "Show raw text read";
     if(ocrMode === "table"){
       const parsed = parseTableText(text);
       const header = parseDeviceHeader(text);
@@ -1011,6 +1027,12 @@ ocrUse.onclick = () => {
 };
 
 ocrCancel.onclick = closeOcr;
+
+ocrRawToggle.onclick = () => {
+  const open = ocrRawText.classList.toggle("open");
+  ocrRawToggle.textContent = open ? "Hide raw text read" : "Show raw text read";
+  if(open) ocrRawText.textContent = ocrLastRawText || "(nothing captured yet)";
+};
 
 // Release the camera if the tab is hidden or the page is navigated away
 // from while the overlay happens to be open.
